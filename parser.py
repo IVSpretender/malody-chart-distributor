@@ -16,6 +16,7 @@ class ParsedChart:
     source_type: str
     source_hash: str
     mc_name: str
+    chart_subdir: str
     background: str
     cover: str
     title: str
@@ -74,6 +75,7 @@ def _chart_from_mc_data(
     source_type: str,
     source_hash: str,
     mc_name: str,
+    chart_subdir: str,
 ) -> ParsedChart:
     meta_raw = data.get("meta")
     meta: dict[str, Any] = meta_raw if isinstance(meta_raw, dict) else {}
@@ -105,6 +107,7 @@ def _chart_from_mc_data(
         source_type=source_type,
         source_hash=source_hash,
         mc_name=mc_name,
+        chart_subdir=chart_subdir,
         background=background,
         cover=cover,
         title=title,
@@ -139,6 +142,7 @@ def parse_mcz_file(mcz_path: str | Path, sid: int, cid_start: int) -> list[Parse
                     source_type="mcz",
                     source_hash=source_hash,
                     mc_name=mc_name,
+                    chart_subdir=Path(mc_name).parent.as_posix() if Path(mc_name).parent.as_posix() != "." else "",
                 )
             )
             cid += 1
@@ -154,6 +158,7 @@ def parse_extracted_chart_dir(directory_path: str | Path, sid: int, cid_start: i
     cid = cid_start
 
     for mc_file in mc_files:
+        mc_rel = mc_file.relative_to(base)
         mc_data = _parse_mc_content(mc_file.read_bytes())
         charts.append(
             _chart_from_mc_data(
@@ -163,7 +168,8 @@ def parse_extracted_chart_dir(directory_path: str | Path, sid: int, cid_start: i
                 source_name=base.name,
                 source_type="folder",
                 source_hash=source_hash,
-                mc_name=mc_file.relative_to(base).as_posix(),
+                mc_name=mc_rel.as_posix(),
+                chart_subdir=mc_rel.parent.as_posix() if mc_rel.parent.as_posix() != "." else "",
             )
         )
         cid += 1

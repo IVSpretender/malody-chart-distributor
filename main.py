@@ -68,6 +68,18 @@ def _resolve_source_path(chart: dict[str, Any]) -> Path | None:
     return None
 
 
+def _chart_subdir(chart: dict[str, Any]) -> str:
+    subdir = str(chart.get("chart_subdir") or "").replace("\\", "/").strip("/")
+    return subdir
+
+
+def _resolve_chart_folder_root(chart: dict[str, Any], source_path: Path) -> Path:
+    subdir = _chart_subdir(chart)
+    if not subdir:
+        return source_path
+    return source_path / Path(subdir)
+
+
 def _build_download_filename(chart: dict[str, Any]) -> str:
     source_name = str(chart.get("source_name") or "")
     source_type = str(chart.get("source_type") or "")
@@ -114,7 +126,9 @@ def _build_store_download_items(cid: int, chart: dict[str, Any]) -> list[dict[st
         return items
 
     if source_type == "folder":
-        root = source_path.resolve()
+        root = _resolve_chart_folder_root(chart, source_path).resolve()
+        if not root.is_dir():
+            return []
         for file_path in sorted(p for p in root.rglob("*") if p.is_file()):
             name = file_path.relative_to(root).as_posix()
             item_hash = _file_md5(file_path)
@@ -152,7 +166,12 @@ def _asset_url(chart: dict[str, Any], asset_name: str) -> str:
     source_type = str(chart.get("source_type") or "")
 
     if source_type == "folder":
-        return f"{TEST_BASE_URL}/download/{quote(source_name)}/{quote(asset_name)}"
+        path_parts = [quote(source_name)]
+        subdir = _chart_subdir(chart)
+        if subdir:
+            path_parts.extend(quote(part) for part in subdir.split("/") if part)
+        path_parts.extend(quote(part) for part in asset_name.replace("\\", "/").split("/") if part)
+        return f"{TEST_BASE_URL}/download/{'/'.join(path_parts)}"
 
     if source_type == "mcz":
         return f"{TEST_BASE_URL}/download/{quote(source_name)}?asset={quote(asset_name)}"
@@ -440,7 +459,9 @@ def download_entry_by_name(cid: int, name: str = Query(...)):
         return StreamingResponse(iter([content]), media_type="application/octet-stream", headers=headers)
 
     if source_type == "folder":
-        root = source_path.resolve()
+        root = _resolve_chart_folder_root(chart, source_path).resolve()
+        if not root.is_dir():
+            raise HTTPException(status_code=404, detail="chart folder not found")
         target = (root / name).resolve()
         try:
             target.relative_to(root)
