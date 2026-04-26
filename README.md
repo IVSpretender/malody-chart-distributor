@@ -41,10 +41,9 @@ conda deactivate
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-3. 本地访问
+3. 访问服务
 
-- `http://127.0.0.1:8000/api/store/info`
-- `http://127.0.0.1:8000/docs`
+在 Malody V 客户端的设置中将谱面服务器主机填写为 `http://你的服务器ip:8000/`
 
 ## 目录说明
 

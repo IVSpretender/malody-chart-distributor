@@ -9,13 +9,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from config import BASE_URL, PAGE_SIZE, SCAN_ROOTS
 from parser import scan_chart_sources
 
-app = FastAPI(title="Malody Chart Distributor", version="0.1.0")
-PAGE_SIZE = 20
-TEST_BASE_URL = "http://localhost:8000"
-SCAN_ROOTS = (Path("charts"), Path(".local/example_chart"))
 
+app = FastAPI(title="Malody Chart Distributor", version="0.1.0")
 
 def _empty_page(next_value: int = 0) -> dict:
     return {"code": 0, "hasMore": False, "next": next_value, "data": []}
@@ -121,7 +119,7 @@ def _build_store_download_items(cid: int, chart: dict[str, Any]) -> list[dict[st
                 name = info.filename
                 content = zf.read(name)
                 item_hash = _bytes_md5(content)
-                file_url = f"{TEST_BASE_URL}/download/cid/{cid}/file?name={quote(name)}"
+                file_url = f"{BASE_URL}/download/cid/{cid}/file?name={quote(name)}"
                 items.append({"name": name, "hash": item_hash, "file": file_url})
         return items
 
@@ -132,7 +130,7 @@ def _build_store_download_items(cid: int, chart: dict[str, Any]) -> list[dict[st
         for file_path in sorted(p for p in root.rglob("*") if p.is_file()):
             name = file_path.relative_to(root).as_posix()
             item_hash = _file_md5(file_path)
-            file_url = f"{TEST_BASE_URL}/download/cid/{cid}/file?name={quote(name)}"
+            file_url = f"{BASE_URL}/download/cid/{cid}/file?name={quote(name)}"
             items.append({"name": name, "hash": item_hash, "file": file_url})
         return items
 
@@ -171,12 +169,12 @@ def _asset_url(chart: dict[str, Any], asset_name: str) -> str:
         if subdir:
             path_parts.extend(quote(part) for part in subdir.split("/") if part)
         path_parts.extend(quote(part) for part in asset_name.replace("\\", "/").split("/") if part)
-        return f"{TEST_BASE_URL}/download/{'/'.join(path_parts)}"
+        return f"{BASE_URL}/download/{'/'.join(path_parts)}"
 
     if source_type == "mcz":
-        return f"{TEST_BASE_URL}/download/{quote(source_name)}?asset={quote(asset_name)}"
+        return f"{BASE_URL}/download/{quote(source_name)}?asset={quote(asset_name)}"
 
-    return f"{TEST_BASE_URL}/download/{quote(source_name)}/{quote(asset_name)}"
+    return f"{BASE_URL}/download/{quote(source_name)}/{quote(asset_name)}"
 
 
 def _resolve_cover_url(chart: dict[str, Any]) -> str:

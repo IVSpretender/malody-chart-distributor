@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
 
+from config import SONG_ID_HEAD, CHART_ID_HEAD
+
 
 @dataclass
 class ParsedChart:
@@ -183,8 +185,8 @@ def scan_chart_sources(root_path: str | Path) -> list[dict[str, Any]]:
         raise FileNotFoundError(f"路径不存在: {root}")
 
     parsed: list[ParsedChart] = []
-    sid = 600000
-    cid = 600000
+    sid = SONG_ID_HEAD
+    cid = CHART_ID_HEAD
 
     for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
         if entry.is_file() and entry.suffix.lower() == ".mcz":
