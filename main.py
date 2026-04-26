@@ -59,8 +59,6 @@ def _resolve_source_path(chart: dict[str, Any]) -> Path | None:
 
     for root in SCAN_ROOTS:
         candidate = root / source_name
-        if source_type == "mcz" and candidate.is_file():
-            return candidate
         if source_type == "folder" and candidate.is_dir():
             return candidate
     return None
@@ -80,10 +78,7 @@ def _resolve_chart_folder_root(chart: dict[str, Any], source_path: Path) -> Path
 
 def _build_download_filename(chart: dict[str, Any]) -> str:
     source_name = str(chart.get("source_name") or "")
-    source_type = str(chart.get("source_type") or "")
-    if source_type == "mcz":
-        return source_name
-    if source_type == "folder":
+    if str(chart.get("source_type") or "") == "folder":
         return f"{source_name}.mcz"
     return source_name or "chart.mcz"
 
@@ -99,10 +94,6 @@ def _file_md5(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return md5.hexdigest()
 
 
-def _bytes_md5(content: bytes) -> str:
-    return hashlib.md5(content).hexdigest()
-
-
 def _build_store_download_items(cid: int, chart: dict[str, Any]) -> list[dict[str, str]]:
     source_path = _resolve_source_path(chart)
     if source_path is None:
@@ -110,18 +101,6 @@ def _build_store_download_items(cid: int, chart: dict[str, Any]) -> list[dict[st
 
     source_type = str(chart.get("source_type") or "")
     items: list[dict[str, str]] = []
-
-    if source_type == "mcz":
-        with ZipFile(source_path, "r") as zf:
-            for info in sorted(zf.infolist(), key=lambda x: x.filename.lower()):
-                if info.is_dir():
-                    continue
-                name = info.filename
-                content = zf.read(name)
-                item_hash = _bytes_md5(content)
-                file_url = f"{BASE_URL}/download/cid/{cid}/file?name={quote(name)}"
-                items.append({"name": name, "hash": item_hash, "file": file_url})
-        return items
 
     if source_type == "folder":
         root = _resolve_chart_folder_root(chart, source_path).resolve()
@@ -171,16 +150,10 @@ def _asset_url(chart: dict[str, Any], asset_name: str) -> str:
         path_parts.extend(quote(part) for part in asset_name.replace("\\", "/").split("/") if part)
         return f"{BASE_URL}/download/{'/'.join(path_parts)}"
 
-    if source_type == "mcz":
-        return f"{BASE_URL}/download/{quote(source_name)}?asset={quote(asset_name)}"
-
     return f"{BASE_URL}/download/{quote(source_name)}/{quote(asset_name)}"
 
 
 def _resolve_cover_url(chart: dict[str, Any]) -> str:
-    if str(chart.get("source_type") or "") == "mcz":
-        return ""
-
     cover_name = str(chart.get("cover") or "")
     background_name = str(chart.get("background") or "")
 
@@ -410,13 +383,6 @@ def _download_by_cid_response(cid: int):
     filename = _build_download_filename(chart)
     source_type = str(chart.get("source_type") or "")
 
-    if source_type == "mcz":
-        return FileResponse(
-            path=source_path,
-            media_type="application/octet-stream",
-            filename=filename,
-        )
-
     if source_type == "folder":
         zip_bytes = _zip_folder_bytes(source_path)
         headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
@@ -442,19 +408,6 @@ def download_entry_by_name(cid: int, name: str = Query(...)):
 
     source_type = str(chart.get("source_type") or "")
     download_name = Path(name).name or "file.bin"
-
-    if source_type == "mcz":
-        with ZipFile(source_path, "r") as zf:
-            try:
-                info = zf.getinfo(name)
-            except KeyError as exc:
-                raise HTTPException(status_code=404, detail="entry not found") from exc
-            if info.is_dir():
-                raise HTTPException(status_code=404, detail="entry is a directory")
-            content = zf.read(name)
-
-        headers = {"Content-Disposition": f'attachment; filename="{download_name}"'}
-        return StreamingResponse(iter([content]), media_type="application/octet-stream", headers=headers)
 
     if source_type == "folder":
         root = _resolve_chart_folder_root(chart, source_path).resolve()

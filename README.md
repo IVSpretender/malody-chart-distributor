@@ -12,7 +12,7 @@ A personal Malody server for distributing self-made charts.
 
 ## 已实现能力
 
-- 扫描谱面来源：支持 `charts/` 内的谱面目录与 `.mcz` 文件
+- 扫描谱面来源：支持 `charts/` 内的解压后谱面目录（目录内含 `.mc` 与资源文件）
 - 核心解析字段：`title`、`titleorg`、`artist`、`artistorg`、`version`、`mode`、`free`、`background`、`cover`、`bpm`
 - 商店接口骨架：`/api/store/info`、`/api/store/list`、`/api/store/charts`、`/api/store/query`、`/api/store/download`
 - 下载机制：`/api/store/download` 返回逐文件 `items`，客户端下载单文件而非整包
@@ -41,7 +41,7 @@ Copy-Item config.example.py config.py
 ```
 
 2. 按需修改 `config.py`（如 `BASE_URL`、`SCAN_ROOTS`）
-3. 把谱面目录或 `.mcz` 放进 `charts/`
+3. 把解压后的谱面目录放进 `charts/`
 4. 启动服务
 
 ```powershell
@@ -108,14 +108,13 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 - `cover` 返回 URL 字符串
 - `cover` 不存在时回退到 `background`
 - `cover` 和 `background` 都不存在时返回空字符串
-- 当来源是 `.mcz` 时，`cover` 默认返回空字符串，避免频繁解压带来的额外负担
 - 当前测试主机写死为 `http://localhost:8000`
 
 ## 已知限制
 
 - 目前是内存扫描模式，尚未接入数据库持久化
 - `sid`/`cid` 由服务端生成，不依赖 `.mc` 内原始 sid/cid
-- 解析 `.mcz` 会有额外 CPU/IO 开销，生产建议优先使用已解压目录
+- 当前不支持直接读取 `.mcz` 压缩包，请先解压后再放入 `charts/`
 
 ## 常见问题
 
