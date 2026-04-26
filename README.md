@@ -34,14 +34,21 @@ conda deactivate
 
 ## 快速启动
 
-1. 把谱面目录或 `.mcz` 放进 `charts/`
-2. 启动服务
+1. 初始化配置（首次）
+
+```powershell
+Copy-Item config.example.py config.py
+```
+
+2. 按需修改 `config.py`（如 `BASE_URL`、`SCAN_ROOTS`）
+3. 把谱面目录或 `.mcz` 放进 `charts/`
+4. 启动服务
 
 ```powershell
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-3. 访问服务
+5. 访问服务
 
 在 Malody V 客户端的设置中将谱面服务器主机填写为 `http://你的服务器ip:8000/`
 
