@@ -9,11 +9,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import BASE_URL, PAGE_SIZE, SCAN_ROOTS
+from config import WELCOME_MESSAGE, BASE_URL, PAGE_SIZE, SCAN_ROOTS
 from parser import scan_chart_sources
 
 
-app = FastAPI(title="Malody Chart Distributor", version="0.1.0")
+app = FastAPI(title="Malody Chart Distributor", version="0.2.1")
 
 def _empty_page(next_value: int = 0) -> dict:
     return {"code": 0, "hasMore": False, "next": next_value, "data": []}
@@ -196,7 +196,7 @@ def _build_song_list(charts: list[dict[str, Any]], org: int) -> list[dict[str, A
     for sid, song in songs.items():
         song["mode"] = _mode_bitmask(song_modes.get(sid, []))
 
-    return [songs[sid] for sid in sorted(songs)]
+    return [songs[sid] for sid in sorted(songs, reverse=True)]
 
 
 def _parse_level(version: str) -> int:
@@ -220,7 +220,7 @@ def store_info() -> dict:
         "code": 0,
         "api": 202310,
         "min": 202103,
-        "welcome": "Welcome to my personal Store!",
+        "welcome": WELCOME_MESSAGE,
     }
 
 
@@ -278,11 +278,8 @@ def store_promote(
     mode: int = Query(default=-1),
     from_: int = Query(default=0, alias="from"),
 ) -> dict:
-    charts = _load_chart_catalog()
-    songs = _build_song_list(charts, org=org)
-    if mode >= 0:
-        songs = [s for s in songs if int(s.get("mode", 0)) & (1 << mode)]
-    return _paginate(songs, from_)
+    # 暂不提供推广位数据，返回空列表
+    return _empty_page(next_value=from_)
 
 
 @app.get("/api/store/friend")
@@ -290,9 +287,8 @@ def store_friend(
     org: int = Query(default=0),
     from_: int = Query(default=0, alias="from"),
 ) -> dict:
-    charts = _load_chart_catalog()
-    songs = _build_song_list(charts, org=org)
-    return _paginate(songs, from_)
+    # 暂不提供好友榜数据，返回空列表
+    return _empty_page(next_value=from_)
 
 
 @app.get("/api/store/charts")

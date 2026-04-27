@@ -224,3 +224,4 @@ config.py
 !config.example.py
 *.local.md
 charts/
+events/
