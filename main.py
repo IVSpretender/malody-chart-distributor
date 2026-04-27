@@ -3,6 +3,7 @@ from urllib.parse import quote
 from io import BytesIO
 import hashlib
 from pathlib import Path
+import tomllib
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import FastAPI, HTTPException, Query
@@ -13,7 +14,11 @@ from config import WELCOME_MESSAGE, BASE_URL, PAGE_SIZE, SCAN_ROOTS
 from parser import scan_chart_sources
 
 
-app = FastAPI(title="Malody Chart Distributor", version="0.2.1")
+def get_version() -> str:
+    data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    return data["project"]["version"]
+
+app = FastAPI(title="Malody Chart Distributor", version=get_version())
 
 def _empty_page(next_value: int = 0) -> dict:
     return {"code": 0, "hasMore": False, "next": next_value, "data": []}
