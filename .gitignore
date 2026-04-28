@@ -61,6 +61,13 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Runtime data for this project
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
 # Flask stuff:
 instance/
 .webassets-cache
@@ -224,4 +231,5 @@ config.py
 !config.example.py
 *.local.md
 charts/
+promote/
 events/
