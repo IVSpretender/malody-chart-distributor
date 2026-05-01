@@ -2,245 +2,425 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-from threading import Lock
-from dataclasses import asdict, dataclass
+import time
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from config import SONG_ID_HEAD, CHART_ID_HEAD
+from config import (
+    CHART_ID_HEAD,
+    EVENT_DEFAULT_SPONSOR,
+    EVENT_ID_HEAD,
+    EVENT_SOURCE_ROOT,
+    SONG_ID_HEAD,
+    SONG_SOURCE_ROOTS,
+)
 
 
-_SID_STATE_FILENAME = ".sid_state.json"
-_SID_STATE_LOCK = Lock()
-_SID_STATE_VERSION = 2
+_EVENT_JSON_NAME = "event.json"
+_DEFAULT_EVENT_START_DATE = "2026-04-28"
+_DEFAULT_EVENT_END_DATE = "2099-12-31"
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
 
 
 @dataclass
-class ParsedChart:
-    sid: int
-    cid: int
-    source_name: str
-    source_type: str
-    source_hash: str
-    mc_name: str
-    chart_subdir: str
-    background: str
-    cover: str
+class ScanSong:
+    song_key: str
+    song_folder_name: str
+    path: str
+    promote: int
     title: str
-    titleorg: str
+    title_org: str
     artist: str
-    artistorg: str
-    version: str
-    mode: int
-    creator: str
-    free: int
+    artist_org: str
     bpm: float
+    length: int
+    cover: str
+    background: str
+    mode_mask: int
 
 
-def compute_directory_md5(directory_path: str | Path) -> str:
-    md5 = hashlib.md5()
-    base = Path(directory_path)
-    for file_path in sorted(p for p in base.rglob("*") if p.is_file()):
-        relative = file_path.relative_to(base).as_posix().encode("utf-8")
-        md5.update(relative)
-        md5.update(b"\x00")
-        with file_path.open("rb") as f:
-            while True:
-                chunk = f.read(1024 * 1024)
-                if not chunk:
-                    break
-                md5.update(chunk)
-        md5.update(b"\x00")
-    return md5.hexdigest()
+@dataclass
+class ScanChart:
+    song_key: str
+    hash: str
+    path: str
+    mc_name: str
+    version: str
+    level: int
+    mode: int
+    uid: int
+    creator: str
+    size: int
+    type: int
 
 
-def _parse_mc_content(mc_content: bytes) -> dict[str, Any]:
-    data = json.loads(mc_content.decode("utf-8"))
+@dataclass
+class ScanEvent:
+    event_key: str
+    event_folder_name: str
+    source_root: str
+    cover: str
+    sponsor: str
+    start_date: str
+    end_date: str
+    active: bool
+    song_keys: list[str]
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_level(version: str) -> int:
+    # 在字符串中寻找 "Lv"（不区分大小写），后面可能有小数点或直接数字。
+    # 匹配示例："Lv.22", "LV11-12", "LV.10.1" "4K Easy" -> 返回 22、11、10、0
+    if not version:
+        return 0
+    s = str(version)
+    m = re.search(r"lv\.?\s*([0-9]+)", s, re.IGNORECASE)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            return 0
+    return 0
+
+
+
+def _normalize_json_bytes(data: dict[str, Any]) -> bytes:
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return payload.encode("utf-8")
+
+
+def _hash_mc_content(data: dict[str, Any]) -> str:
+    normalized = _normalize_json_bytes(data)
+    return hashlib.sha1(normalized).hexdigest()
+
+
+def _load_mc_data(path: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        return None
     if not isinstance(data, dict):
-        raise ValueError(".mc 文件根结构不是 JSON 对象")
+        return None
     return data
 
 
-def _chart_from_mc_data(
-    *,
-    data: dict[str, Any],
-    sid: int,
-    cid: int,
-    source_name: str,
-    source_type: str,
-    source_hash: str,
-    mc_name: str,
-    chart_subdir: str,
-) -> ParsedChart:
-    meta_raw = data.get("meta")
-    meta: dict[str, Any] = meta_raw if isinstance(meta_raw, dict) else {}
-    song_raw = meta.get("song")
-    song: dict[str, Any] = song_raw if isinstance(song_raw, dict) else {}
-
-    title = str(song.get("title") or meta.get("title") or "")
-    titleorg = str(song.get("titleorg") or meta.get("titleorg") or "")
-    artist = str(song.get("artist") or meta.get("artist") or "")
-    artistorg = str(song.get("artistorg") or meta.get("artistorg") or "")
-    background = str(meta.get("background") or "")
-    cover = str(meta.get("cover") or "")
-    version = str(meta.get("version") or "")
-    mode = int(meta.get("mode", -1))
-    creator = str(meta.get("creator") or "")
-    free_raw = meta.get("free", 0)
-    free = 1 if bool(free_raw) else 0
-    bpm_value = song.get("bpm", 0)
-
-    try:
-        bpm = float(bpm_value)
-    except (TypeError, ValueError):
-        bpm = 0.0
-
-    return ParsedChart(
-        sid=sid,
-        cid=cid,
-        source_name=source_name,
-        source_type=source_type,
-        source_hash=source_hash,
-        mc_name=mc_name,
-        chart_subdir=chart_subdir,
-        background=background,
-        cover=cover,
-        title=title,
-        titleorg=titleorg,
-        artist=artist,
-        artistorg=artistorg,
-        version=version,
-        mode=mode,
-        creator=creator,
-        free=free,
-        bpm=bpm,
-    )
-
-
-def parse_extracted_chart_dir(directory_path: str | Path, sid: int, cid_start: int) -> list[ParsedChart]:
-    base = Path(directory_path)
-    source_hash = compute_directory_md5(base)
-    mc_files = sorted(base.rglob("*.mc"))
-    charts: list[ParsedChart] = []
-    cid = cid_start
-
-    for mc_file in mc_files:
-        mc_rel = mc_file.relative_to(base)
-        mc_data = _parse_mc_content(mc_file.read_bytes())
-        charts.append(
-            _chart_from_mc_data(
-                data=mc_data,
-                sid=sid,
-                cid=cid,
-                source_name=base.name,
-                source_type="folder",
-                source_hash=source_hash,
-                mc_name=mc_rel.as_posix(),
-                chart_subdir=mc_rel.parent.as_posix() if mc_rel.parent.as_posix() != "." else "",
-            )
-        )
-        cid += 1
-
-    return charts
-
-
-def _normalize_song_key(root: Path, entry: Path) -> str:
-    rel = entry.relative_to(root).as_posix().strip("/")
-    rel = "/".join(part for part in rel.split("/") if part)
-    if os.name == "nt":
-        return rel.lower()
-    return rel
-
-
-def _sid_state_path(root: Path) -> Path:
-    return root / _SID_STATE_FILENAME
-
-
-def _load_sid_state(root: Path) -> dict[str, Any]:
-    path = _sid_state_path(root)
-    if not path.is_file():
-        return {"version": _SID_STATE_VERSION, "next_sid": 1, "songs": {}}
-
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {"version": _SID_STATE_VERSION, "next_sid": 1, "songs": {}}
-
-    songs_raw = data.get("songs") if isinstance(data, dict) else None
-    songs_dict = songs_raw if isinstance(songs_raw, dict) else {}
-
-    local_songs = {
-        str(k): int(v)
-        for k, v in songs_dict.items()
-        if isinstance(v, int) and int(v) >= 1
-    }
-    max_known_local_sid = max(local_songs.values(), default=0)
-    next_sid_raw = data.get("next_sid") if isinstance(data, dict) else 1
-    next_sid = int(next_sid_raw) if isinstance(next_sid_raw, int) else 1
-    next_sid = max(next_sid, max_known_local_sid + 1, 1)
-    return {"version": _SID_STATE_VERSION, "next_sid": next_sid, "songs": local_songs}
-
-
-def _save_sid_state(root: Path, state: dict[str, Any]) -> None:
-    path = _sid_state_path(root)
-    payload = {
-        "version": _SID_STATE_VERSION,
-        "next_sid": max(int(state.get("next_sid", 1)), 1),
-        "songs": {
-            k: int(v)
-            for k, v in dict(state.get("songs", {})).items()
-            if isinstance(v, int) and int(v) >= 1
-        },
-    }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _allocate_sid_map(root: Path, entries: list[Path]) -> dict[str, int]:
-    with _SID_STATE_LOCK:
-        state = _load_sid_state(root)
-        songs = dict(state.get("songs", {}))
-        next_sid = int(state.get("next_sid", 1))
-        changed = False
-        result: dict[str, int] = {}
-
-        for entry in entries:
-            song_key = _normalize_song_key(root, entry)
-            sid = songs.get(song_key)
-            if sid is None:
-                sid = next_sid
-                songs[song_key] = sid
-                next_sid += 1
-                changed = True
-            result[song_key] = sid
-
-        if changed:
-            _save_sid_state(root, {"version": _SID_STATE_VERSION, "next_sid": next_sid, "songs": songs})
-
-    return result
-
-
-def scan_chart_sources(root_path: str | Path) -> list[dict[str, Any]]:
-    root = Path(root_path)
-    if not root.exists():
-        raise FileNotFoundError(f"路径不存在: {root}")
-
-    parsed: list[ParsedChart] = []
-    cid = CHART_ID_HEAD + 1
-
-    song_entries = [
+def _discover_song_directories(root: Path) -> list[Path]:
+    if not root.is_dir():
+        return []
+    return [
         entry
         for entry in sorted(root.iterdir(), key=lambda p: p.name.lower())
         if entry.is_dir() and any(entry.rglob("*.mc"))
     ]
-    sid_map = _allocate_sid_map(root, song_entries)
 
-    for entry in song_entries:
-        song_key = _normalize_song_key(root, entry)
-        sid = SONG_ID_HEAD + sid_map[song_key]
-        charts = parse_extracted_chart_dir(entry, sid=sid, cid_start=cid)
-        if charts:
-            parsed.extend(charts)
-            cid += len(charts)
 
-    return [asdict(item) for item in parsed]
+def _discover_event_directories(root: Path) -> list[Path]:
+    if not root.is_dir():
+        return []
+    return [entry for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()) if entry.is_dir()]
+
+
+def _discover_image_name(directory: Path) -> str:
+    for file_path in sorted(p for p in directory.iterdir() if p.is_file()):
+        if file_path.suffix.lower() in _IMAGE_SUFFIXES:
+            return file_path.name
+    return ""
+
+
+def _default_event_meta() -> dict[str, Any]:
+    return {
+        "sponsor": EVENT_DEFAULT_SPONSOR,
+        "start_date": _DEFAULT_EVENT_START_DATE,
+        "end_date": _DEFAULT_EVENT_END_DATE,
+        "active": True,
+    }
+
+
+def _normalize_event_meta(raw: Any) -> tuple[dict[str, Any], bool]:
+    meta = _default_event_meta()
+    changed = False
+    if isinstance(raw, dict):
+        sponsor = raw.get("sponsor")
+        if isinstance(sponsor, str) and sponsor:
+            meta["sponsor"] = sponsor
+        else:
+            changed = True
+
+        start_date = raw.get("start_date")
+        if isinstance(start_date, str) and start_date:
+            meta["start_date"] = start_date
+        else:
+            changed = True
+
+        end_date = raw.get("end_date")
+        if isinstance(end_date, str) and end_date:
+            meta["end_date"] = end_date
+        else:
+            changed = True
+
+        active = raw.get("active")
+        if isinstance(active, bool):
+            meta["active"] = active
+        elif isinstance(active, int):
+            meta["active"] = bool(active)
+            changed = True
+        else:
+            changed = True
+    else:
+        changed = True
+
+    return meta, changed
+
+
+def _load_event_meta(event_dir: Path) -> dict[str, Any]:
+    meta_path = event_dir / _EVENT_JSON_NAME
+    raw_data: Any = None
+
+    if meta_path.is_file():
+        try:
+            raw_data = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+            raw_data = None
+
+    meta, changed = _normalize_event_meta(raw_data)
+    if changed or not meta_path.is_file():
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return meta
+
+
+def _song_key(path: str, folder_name: str) -> str:
+    clean_path = path.strip("/")
+    clean_folder = folder_name.strip("/")
+    if not clean_path:
+        return clean_folder
+    return f"{clean_path}/{clean_folder}"
+
+
+def _scan_song_directory(song_dir: Path, path_root: str, promote: int) -> tuple[ScanSong | None, list[ScanChart]]:
+    mc_files = sorted(song_dir.rglob("*.mc"))
+    charts: list[ScanChart] = []
+
+    title = ""
+    title_org = ""
+    artist = ""
+    artist_org = ""
+    cover = ""
+    background = ""
+    bpm = 0.0
+    length = 0
+    mode_mask = 0
+
+    song_key = _song_key(path_root, song_dir.name)
+    base_root = Path(path_root) / song_dir.name
+
+    for mc_file in mc_files:
+        mc_data = _load_mc_data(mc_file)
+        if mc_data is None:
+            continue
+
+        meta_raw = mc_data.get("meta")
+        meta: dict[str, Any] = meta_raw if isinstance(meta_raw, dict) else {}
+        song_raw = meta.get("song")
+        song_meta: dict[str, Any] = song_raw if isinstance(song_raw, dict) else {}
+
+        chart_title = str(song_meta.get("title") or meta.get("title") or "")
+        chart_title_org = str(song_meta.get("titleorg") or meta.get("titleorg") or "")
+        chart_artist = str(song_meta.get("artist") or meta.get("artist") or "")
+        chart_artist_org = str(song_meta.get("artistorg") or meta.get("artistorg") or "")
+        chart_cover = str(meta.get("cover") or "")
+        chart_background = str(meta.get("background") or "")
+        chart_version = str(meta.get("version") or "")
+        chart_mode = _safe_int(meta.get("mode", -1), default=-1)
+        chart_uid = _safe_int(meta.get("uid", 0), default=0)
+        chart_creator = str(meta.get("creator") or "")
+        chart_type = _safe_int(meta.get("type", 2), default=2)
+        chart_length = _safe_int(meta.get("length", 0), default=0)
+        chart_bpm = _safe_float(song_meta.get("bpm", 0))
+
+        if not title:
+            title = chart_title
+        if not title_org:
+            title_org = chart_title_org
+        if not artist:
+            artist = chart_artist
+        if not artist_org:
+            artist_org = chart_artist_org
+        if not cover:
+            cover = chart_cover
+        if not background:
+            background = chart_background
+        if bpm == 0.0 and chart_bpm:
+            bpm = chart_bpm
+
+        length = max(length, chart_length)
+        if 0 <= chart_mode <= 30:
+            mode_mask |= 1 << chart_mode
+
+        mc_rel = mc_file.relative_to(song_dir)
+        chart_dir = mc_rel.parent if mc_rel.parent.as_posix() != "." else Path(".")
+        chart_root = base_root / chart_dir
+        chart_path = chart_root.as_posix().strip("/")
+
+        charts.append(
+            ScanChart(
+                song_key=song_key,
+                hash=_hash_mc_content(mc_data),
+                path=chart_path,
+                mc_name=mc_rel.as_posix(),
+                version=chart_version,
+                level=_parse_level(chart_version),
+                mode=chart_mode,
+                uid=chart_uid,
+                creator=chart_creator,
+                size=mc_file.stat().st_size,
+                type=chart_type,
+            )
+        )
+
+    if not charts:
+        return None, []
+
+    song = ScanSong(
+        song_key=song_key,
+        song_folder_name=song_dir.name,
+        path=path_root,
+        promote=promote,
+        title=title,
+        title_org=title_org,
+        artist=artist,
+        artist_org=artist_org,
+        bpm=bpm,
+        length=length,
+        cover=cover,
+        background=background,
+        mode_mask=mode_mask,
+    )
+    return song, charts
+
+
+def scan_song_root(root: Path, promote: int) -> tuple[list[ScanSong], list[ScanChart]]:
+    songs: list[ScanSong] = []
+    charts: list[ScanChart] = []
+    path_root = root.as_posix().strip("/")
+
+    for song_dir in _discover_song_directories(root):
+        song, song_charts = _scan_song_directory(song_dir, path_root, promote)
+        if song is None:
+            continue
+        songs.append(song)
+        charts.extend(song_charts)
+
+    return songs, charts
+
+
+def scan_event_root(root: Path) -> tuple[list[ScanEvent], list[ScanSong], list[ScanChart]]:
+    events: list[ScanEvent] = []
+    songs: list[ScanSong] = []
+    charts: list[ScanChart] = []
+
+    for event_dir in _discover_event_directories(root):
+        event_root = root.name
+        path_root = f"{event_root}/{event_dir.name}".strip("/")
+        cover = _discover_image_name(event_dir)
+        meta = _load_event_meta(event_dir)
+
+        event_songs: list[ScanSong] = []
+        event_charts: list[ScanChart] = []
+
+        for song_dir in _discover_song_directories(event_dir):
+            song, song_charts = _scan_song_directory(song_dir, path_root, promote=0)
+            if song is None:
+                continue
+            event_songs.append(song)
+            event_charts.extend(song_charts)
+
+        event = ScanEvent(
+            event_key=event_dir.name,
+            event_folder_name=event_dir.name,
+            source_root=event_root,
+            cover=cover,
+            sponsor=str(meta.get("sponsor", "")),
+            start_date=str(meta.get("start_date", "")),
+            end_date=str(meta.get("end_date", "")),
+            active=bool(meta.get("active", True)),
+            song_keys=[song.song_key for song in event_songs],
+        )
+        events.append(event)
+        songs.extend(event_songs)
+        charts.extend(event_charts)
+
+    return events, songs, charts
+
+
+def scan_all_sources(
+    song_roots: list[Path] | None = None,
+    event_root: Path | None = None,
+) -> dict[str, Any]:
+    songs: list[ScanSong] = []
+    charts: list[ScanChart] = []
+    events: list[ScanEvent] = []
+
+    song_roots = song_roots or SONG_SOURCE_ROOTS
+    event_root = event_root or EVENT_SOURCE_ROOT
+
+    for root in song_roots:
+        promote = 1 if root.name == "promote" else 0
+        root_songs, root_charts = scan_song_root(root, promote)
+        songs.extend(root_songs)
+        charts.extend(root_charts)
+
+    event_list, event_songs, event_charts = scan_event_root(event_root)
+    events.extend(event_list)
+    songs.extend(event_songs)
+    charts.extend(event_charts)
+
+    return {
+        "songs": songs,
+        "charts": charts,
+        "events": events,
+    }
+
+
+def reload_database() -> None:
+    try:
+        import db as db_module
+    except ImportError:
+        return
+
+    snapshot = scan_all_sources()
+    db_module.reload_database(
+        snapshot,
+        id_heads={
+            "sid": SONG_ID_HEAD,
+            "cid": CHART_ID_HEAD,
+            "eid": EVENT_ID_HEAD,
+        },
+        now=int(time.time()),
+    )
+
+
+def main() -> None:
+    reload_database()
+    print("[OK] database reload finished")
+    import db as db_module
+    db_module.print_stats()
+
+
+if __name__ == "__main__":
+    main()

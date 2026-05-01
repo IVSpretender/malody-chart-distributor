@@ -12,7 +12,7 @@ A personal Malody server for distributing self-made charts.
 
 ## 已实现能力
 
-- 扫描谱面来源：支持 `charts/` 内的解压后谱面目录（目录内含 `.mc` 与资源文件）
+- 扫描谱面来源：当前仍以目录扫描为主，`charts/` 和 `promote/` 作为歌曲来源，`events/` 作为活动来源
 - 核心解析字段：`title`、`titleorg`、`artist`、`artistorg`、`version`、`mode`、`free`、`background`、`cover`、`bpm`
 - 商店接口骨架：`/api/store/info`、`/api/store/list`、`/api/store/charts`、`/api/store/query`、`/api/store/download`
 - 下载机制：`/api/store/download` 返回逐文件 `items`，客户端下载单文件而非整包
@@ -40,12 +40,38 @@ conda deactivate
 Copy-Item config.example.py config.py
 ```
 
-2. 按需修改 `config.py`（如 `BASE_URL`、`SCAN_ROOTS`）
+2. 按需修改 `config.py`（如 `BASE_URL`、`SONG_SOURCE_ROOTS`、`DOWNLOAD_ROOTS`）
 3. 把解压后的谱面目录放进 `charts/`
 4. 启动服务
 
 ```powershell
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+## 一键构建数据库
+
+在项目根目录执行：
+
+```powershell
+uv run build-db
+
+或者（如果上面的命令不可用）：
+
+```powershell
+uv run python parser.py
+```
+
+成功后会输出统计摘要：
+
+```
+[OK] database reload finished
+
+[DB] Database Statistics:
+	Songs:       N rows (next_sid: XXX)
+	Charts:      M rows (next_cid: YYY)
+	Events:      E rows (next_eid: ZZZ)
+	Stats:       S rows
+```
 ```
 
 5. 访问服务
@@ -112,7 +138,7 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 ## 已知限制
 
-- 目前是内存扫描模式，尚未接入数据库持久化
+- 目前仍未接入 SQLite 持久化，扫描结果和编号仍由现有目录扫描逻辑维护
 - `sid`/`cid` 由服务端生成，不依赖 `.mc` 内原始 sid/cid
 - 当前不支持直接读取 `.mcz` 压缩包，请先解压后再放入 `charts/`
 
