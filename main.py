@@ -262,6 +262,8 @@ def store_list(
         return True
 
     items = [v for v in songs.values() if song_matches(v)]
+    # 最新内容优先
+    items.reverse()
     page, has_more, next_val = _paginate(items, from_)
     _apply_org_titles(page, org)
     _apply_cover_urls(page)
@@ -282,6 +284,8 @@ def store_promote(
     items = [s for s in songs.values() if int(s.get("promote", 0)) == 1]
     if int(mode) >= 0:
         items = [s for s in items if any(int(ch.get("mode", -1)) == int(mode) for ch in s["charts"])]
+    # 最新内容优先
+    items.reverse()
 
     page, has_more, next_val = _paginate(items, from_)
     _apply_org_titles(page, org)
@@ -428,6 +432,8 @@ def store_events(
     events = db.query_events()
     if int(active) == 1:
         events = [e for e in events if int(e.get("active", 0)) == 1]
+    # 最新活动优先
+    events.reverse()
     page, has_more, next_val = _paginate(events, from_)
 
     data: list[dict] = []
@@ -492,6 +498,9 @@ def store_event(
             }
             data.append(item)
     
+    # 最新内容优先
+    data.reverse()
+
     # 分页处理
     page, has_more, next_val = _paginate(data, from_, is_event=True)
     _apply_org_titles(page, org)
