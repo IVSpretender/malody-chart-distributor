@@ -1,30 +1,34 @@
 # malody-chart-distributor
 
-A personal Malody server for distributing self-made charts.
+**一个用于分发自制谱面的个人 Malody 服务端**
 
-一个用于分发自制谱面的个人用 Malody 服务端。
+在局域网中搭建属于自己的 Malody 谱面商店，轻松分享自制谱面给朋友。
 
-## 项目状态
+## 1. 快速开始
 
-- 当前阶段：可用原型（接口已联通，可供客户端测试）
-- 技术栈：FastAPI + uv
-- 目标场景：个人局域网分发，不追求高并发与复杂后台能力
+### 1.0. 系统要求
 
-## 已实现能力
+- **Python 3.12+**
+- **Git**
+- **uv**（Python 依赖管理工具）
 
-- 扫描谱面来源：当前仍以目录扫描为主，`charts/` 和 `promote/` 作为歌曲来源，`events/` 作为活动来源
-- 核心解析字段：`title`、`titleorg`、`artist`、`artistorg`、`version`、`mode`、`free`、`background`、`cover`、`bpm`
-- 商店接口骨架：`/api/store/info`、`/api/store/list`、`/api/store/charts`、`/api/store/query`、`/api/store/download`
-- 下载机制：`/api/store/download` 返回逐文件 `items`，客户端下载单文件而非整包
+如果还未安装 `uv`，请先访问 [uv 官网](https://docs.astral.sh/uv/) 按照说明安装。
 
-## 环境安装
-
-建议使用 `uv` 管理 Python 环境和依赖。
+### 1.1. 克隆仓库
 
 ```powershell
-uv python pin 3.12
-uv sync
+# Windows PowerShell
+git clone https://github.com/IVSpretender/malody-chart-distributor.git
+cd malody-chart-distributor
 ```
+
+```bash
+# Linux/macOS
+git clone https://github.com/IVSpretender/malody-chart-distributor.git
+cd malody-chart-distributor
+```
+
+### 1.2. 安装依赖
 
 如果你正在 conda 的 `base` 环境中，先执行：
 
@@ -32,136 +36,212 @@ uv sync
 conda deactivate
 ```
 
-## 快速启动
-
-1. 初始化配置（首次）
+然后安装依赖：
 
 ```powershell
-Copy-Item config.example.py config.py
+uv python pin 3.12
+uv sync
 ```
 
-2. 按需修改 `config.py`（如 `BASE_URL`、`SONG_SOURCE_ROOTS`、`DOWNLOAD_ROOTS`）
-3. 把解压后的谱面目录放进 `charts/`
-4. 启动服务
+### 1.3. 启动服务
+
+运行对应系统的启动脚本，脚本会自动：
+- 创建 `config.py`（从 `config.example.py` 复制）
+- 创建必需的目录结构（`charts`、`promote`、`events` 等）
+- 显示配置建议
+
+**Windows (PowerShell):**
 
 ```powershell
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+.\run.ps1
 ```
 
-## 一键构建数据库
+**Linux/macOS (Bash):**
 
-在项目根目录执行：
-
-```powershell
-uv run build-db
-
-或者（如果上面的命令不可用）：
-
-```powershell
-uv run python parser.py
+```bash
+chmod +x run.sh
+./run.sh
 ```
 
-成功后会输出统计摘要：
+### 1.4. 编辑配置
+
+打开 `config.py`，按需调整：
+
+- **`BASE_URL`**: 服务器地址，默认 `http://localhost:8000`。局域网访问时改为 `http://你的IP:8000`
+- **`SONG_SOURCE_ROOTS`**: 歌曲来源目录列表
+- **`PAGE_SIZE`**: 每页返回多少首歌曲
+- **`WELCOME_MESSAGE`**: 欢迎信息
+
+### 1.5. 放置谱面文件
+
+#### 普通歌曲
+
+将解压后的谱面目录放入 `charts/` 文件夹：
 
 ```
-[OK] database reload finished
-
-[DB] Database Statistics:
-	Songs:       N rows (next_sid: XXX)
-	Charts:      M rows (next_cid: YYY)
-	Events:      E rows (next_eid: ZZZ)
-	Stats:       S rows
+charts/
+├── Song1/
+│   ├── Song1 RM 4K Hard.mc
+│   ├── cover.jng
+│   └── background.jpg
+└── Song2/
+    ├── Song2example_chart.mc
+    └── cover.png
 ```
+
+#### 推荐歌曲
+
+将特别推荐的谱面放入 `promote/` 文件夹，这些歌曲会在客户端的"推荐"标签页显示。
+
+#### 分类标签
+
+如果想为歌曲添加标签，将其放入 `charts_tagged/<标签1> <标签2> ... <标签n>/` 文件夹(标签之间用空格分隔)。搜索标签时不区分英文字母大小写。
+
+```
+charts_tagged/
+├── GameMusic/
+│   └── GameMusic1/
+│       └── 1777196119.mc
+└── ExampleTag1 ExampleTag2 ExampleTag3/
+    └── ExampleSong1/
+        └── 1776350058.mc
 ```
 
-5. 访问服务
+#### 活动
 
-在 Malody V 客户端的设置中将谱面服务器主机填写为 `http://你的服务器ip:8000/`
+创建事件文件夹 `events/<活动名>/`，放入歌曲和 `event.json` 配置：
 
-## 目录说明
+```
+events/
+└── event1/
+    ├── event.json
+	├── event_cover.png
+    ├── event1_song1/
+    │   └── 1775961385.mc
+    └── event1_song2/
+        └── 1776501093.mc
+```
 
-- `main.py`: FastAPI 入口与接口实现
-- `parser.py`: 谱面扫描与解析逻辑
-- `charts/`: 你的谱面数据目录
-- `docs/`: 参考文档
-- `.local/`: 本地开发草稿与示例（通常不入库）
-
-## 接口说明（当前版本）
-
-### `GET /api/store/info`
-
-返回服务器版本与欢迎信息。
-
-### `GET /api/store/list`
-
-返回歌曲列表（分页结构）。
-
-### `GET /api/store/charts`
-
-按 `sid` 返回该歌曲下谱面列表。
-
-### `GET /api/store/query`
-
-按 `sid` 或 `cid` 查询歌曲。
-
-### `GET /api/store/download`
-
-按 `cid` 返回文件下载清单：
+如果不创建 `event.json`，系统会创建并使用默认配置：
 
 ```json
 {
-	"code": 0,
-	"items": [
-		{
-			"name": "1777196119.mc",
-			"hash": "8ce2d1aca068f9f7c31df300a036bc10",
-			"file": "http://localhost:8000/download/cid/600000/file?name=1777196119.mc"
-		}
-	],
-	"sid": 600000,
-	"cid": 600000,
-	"uid": 0
+  "sponsor": config.EVENT_DEFAULT_SPONSOR,
+  "start_date": "2026-04-28",
+  "end_date": "2099-12-31",
+  "active": true
 }
 ```
 
-对应下载端点：
+### 1.6. 连接到 Malody 客户端
 
-- `GET /download/cid/{cid}/file?name=<filename>`: 下载单文件
-- `GET /download/cid/{cid}`: 兼容整包下载（调试用途）
+1. 在 Malody V 客户端中进入 **设置 → 服务器**
+2. 将 **谱面服务器主机** 设置为 `http://你的服务器IP:8000/`
+3. 返回商店，即可看到你的谱面列表
 
-## 与客户端兼容的约定
+## 2. 文件说明
 
-- `cover` 返回 URL 字符串
-- `cover` 不存在时回退到 `background`
-- `cover` 和 `background` 都不存在时返回空字符串
-- 当前测试主机写死为 `http://localhost:8000`
+| 文件/目录 | 用途 |
+|---------|------|
+| `main.py` | 服务端主程序（FastAPI） |
+| `parser.py` | 谱面文件扫描和解析逻辑 |
+| `db.py` | 数据库操作 |
+| `config.py` | 配置文件（用户修改） |
+| `config.example.py` | 配置示例模板 |
+| `charts/` | 普通谱面目录（用户放置） |
+| `promote/` | 推荐谱面目录（用户放置） |
+| `events/` | 活动目录（用户放置） |
+| `charts_tagged/` | 分类标签谱面目录（用户放置） |
+| `data/` | 数据库存储目录 |
+| `run.ps1` / `run.sh` | 启动脚本 |
 
-## 已知限制
+## 3. 常见操作
 
-- 目前仍未接入 SQLite 持久化，扫描结果和编号仍由现有目录扫描逻辑维护
-- `sid`/`cid` 由服务端生成，不依赖 `.mc` 内原始 sid/cid
-- 当前不支持直接读取 `.mcz` 压缩包，请先解压后再放入 `charts/`
+### 3.1. 添加新谱面
 
-## 常见问题
+1. 将谱面文件夹复制到 `charts/` 或其他来源目录
+2. 服务器会自动扫描并加载（开启 `--reload` 模式时）
+3. 客户端重新连接后即可看到新谱面
 
-### 1) 启动失败（`uvicorn` 退出码 1）
+### 3.2. 修改谱面信息
 
-- 确认依赖已安装：`uv sync`
-- 确认命令在项目根目录执行
-- 避免 conda `base` 干扰：先 `conda deactivate`
-- 查看详细错误：
+1. 编辑谱面文件夹中的 `.mc` 文件（Malody chart 格式）
+2. 服务器自动检测变化并更新
+3. 客户端重新连接后生效
 
-```powershell
-uv run python -c "from main import app; print(app.title)"
+### 3.3. 删除或隐藏谱面
+
+- 直接从文件夹中删除对应的谱面目录或文件
+- 服务器会自动扫描并移除
+
+### 3.4. 服务器地址配置
+
+**本地测试本项目：**
+```
+BASE_URL = "http://localhost:8000" 
 ```
 
-### 2) 下载接口返回 `code: -2`
+**服务器部署本项目：**
+```
+BASE_URL = "http://<你的服务器IP>:8000"
+```
 
-- 说明 `cid` 不存在
-- 先调用 `GET /api/store/charts?sid=...` 获取有效 `cid`
+如果修改 `BASE_URL` 中的端口号，需要在 run.ps1 或 run.sh 中修改启动命令中的端口号：
 
-## 计划中的后续工作
+```bash
+uv run uvicorn main:app --reload --host 0.0.0.0 --port <端口号> --reload-dir charts ...
+```
 
-- 接入 SQLite 持久化（启动扫描入库）
-- 完善筛选、分页和错误码细节
-- 增加单元测试与接口回归测试
+## 4. 常见问题
+
+### 4.1. 启动失败
+
+**问题：** 运行脚本后报错
+
+**排查步骤：**
+1. 确认依赖已安装：`uv sync`
+2. 确认在项目根目录运行
+3. 检查是否在 conda base 环境（执行 `conda deactivate`）
+4. 查看详细错误：`uv run python -c "from main import app; print(app.title)"`
+
+### 4.2. 客户端无法连接
+
+**问题：** Malody 客户端无法找到服务器
+
+**排查步骤：**
+1. 确认服务器正在运行（终端无错误消息）
+2. 检查 `BASE_URL` 是否正确设置
+3. 确认防火墙允许 8000 端口通信
+4. 确认客户端与服务器在同一网络
+
+### 4.3. 谱面无法加载
+
+**问题：** 放入 `charts/` 的谱面未出现在客户端
+
+**排查步骤：**
+1. 确认谱面文件夹中至少有一个 `.mc` 文件
+2. 确认文件夹名称和 `.mc` 文件名不含特殊符号
+3. 尝试重启服务器
+4. 检查服务器日志中是否有解析错误
+
+### 4.4. 谱面下载失败
+
+**问题：** 客户端下载时出错
+
+**排查步骤：**
+1. 确认源文件仍存在于对应目录
+2. 确认文件没有被其他程序锁定
+3. 尝试重启服务器
+
+## 5. 环境信息
+
+- **Python 版本**：3.12
+- **主要依赖**：FastAPI, uvicorn
+- **数据库**：SQLite（位于 `data/` 目录）
+- **目标场景**：局域网个人分发，单机或小规模使用
+
+## 需要帮助？
+
+- 查看服务器启动时的日志输出
+- 询问 AI 助手
+- 提交 issue

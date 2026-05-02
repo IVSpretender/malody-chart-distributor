@@ -14,7 +14,6 @@ from fastapi.responses import StreamingResponse, FileResponse
 import db
 from parser import reload_database
 from config import WELCOME_MESSAGE, PAGE_SIZE, BASE_URL, DOWNLOAD_ROOTS, EVENT_PAGE_SIZE
-from config import SONG_SOURCE_ROOTS
 
 # repository root (used for producing repo-relative asset paths)
 REPO_ROOT = Path(__file__).parent.resolve()
@@ -242,7 +241,7 @@ def store_list(
                     return False
         # tag matching: check tag or title contains tag
         for tag in tags:
-            if tag.lower() not in (s.get('tag') or "").lower().split() and tag.lower() not in (s.get("title") or "").lower():
+            if tag.lower() not in (s.get('tag') or "").lower().split():
                 return False
         # mode filter: any chart matches mode
         if int(mode) >= 0:
