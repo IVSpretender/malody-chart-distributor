@@ -70,7 +70,7 @@ def _build_songs_from_charts(charts: list[dict], include_fields: list[str] | Non
     
     Args:
         charts: chart列表
-        include_fields: 要包含的额外字段列表，如 ['source_name', 'promote', 'rep_cid']
+        include_fields: 要包含的额外字段列表，如 ['promote', 'rep_cid']
     """
     songs: dict[int, dict] = {}
     for c in charts:
@@ -87,15 +87,14 @@ def _build_songs_from_charts(charts: list[dict], include_fields: list[str] | Non
                 "artist": artist,
                 "artistorg": artistorg,
                 "cover": c.get("cover") or "",
+                "tag": c.get("tag") or "",
                 "charts": [],
                 "song_path": c.get("song_path") or None,
             }
             # 添加可选字段
             if include_fields:
                 for field in include_fields:
-                    if field == "source_name":
-                        song["source_name"] = c.get("source_name") or ""
-                    elif field == "promote":
+                    if field == "promote":
                         song["promote"] = int(c.get("promote") or 0)
                     elif field == "rep_cid":
                         song["rep_cid"] = c.get("cid")
@@ -225,7 +224,7 @@ def store_list(
     from_: int = Query(default=0, alias="from"),
 ) -> dict:
     charts = db.query_all_charts()
-    songs = _build_songs_from_charts(charts, include_fields=["source_name", "promote", "rep_cid"])
+    songs = _build_songs_from_charts(charts, include_fields=["promote", "rep_cid"])
 
     # parse tag tokens from word: tokens starting with '#'
     raw_word = (word or "").strip()
@@ -241,9 +240,9 @@ def store_list(
             else:
                 if simple_word not in (s.get("title") or "").lower() and simple_word not in (s.get("artist") or "").lower():
                     return False
-        # tag matching: check source_name or title contains tag
+        # tag matching: check tag or title contains tag
         for tag in tags:
-            if tag not in (s.get("source_name") or "").lower() and tag not in (s.get("title") or "").lower():
+            if tag.lower() not in (s.get('tag') or "").lower().split() and tag.lower() not in (s.get("title") or "").lower():
                 return False
         # mode filter: any chart matches mode
         if int(mode) >= 0:

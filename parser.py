@@ -15,6 +15,7 @@ from config import (
     EVENT_SOURCE_ROOT,
     SONG_ID_HEAD,
     SONG_SOURCE_ROOTS,
+    SONG_TAGGED_ROOT,
 )
 
 
@@ -30,6 +31,7 @@ class ScanSong:
     song_folder_name: str
     path: str
     promote: int
+    tag: str
     title: str
     title_org: str
     artist: str
@@ -212,7 +214,12 @@ def _song_key(path: str, folder_name: str) -> str:
     return f"{clean_path}/{clean_folder}"
 
 
-def _scan_song_directory(song_dir: Path, path_root: str, promote: int) -> tuple[ScanSong | None, list[ScanChart]]:
+def _scan_song_directory(
+    song_dir: Path,
+    path_root: str,
+    promote: int,
+    tag: str,
+) -> tuple[ScanSong | None, list[ScanChart]]:
     mc_files = sorted(song_dir.rglob("*.mc"))
     charts: list[ScanChart] = []
 
@@ -301,6 +308,7 @@ def _scan_song_directory(song_dir: Path, path_root: str, promote: int) -> tuple[
         song_folder_name=song_dir.name,
         path=path_root,
         promote=promote,
+        tag=tag,
         title=title,
         title_org=title_org,
         artist=artist,
@@ -320,7 +328,7 @@ def scan_song_root(root: Path, promote: int) -> tuple[list[ScanSong], list[ScanC
     path_root = root.as_posix().strip("/")
 
     for song_dir in _discover_song_directories(root):
-        song, song_charts = _scan_song_directory(song_dir, path_root, promote)
+        song, song_charts = _scan_song_directory(song_dir, path_root, promote, tag="")
         if song is None:
             continue
         songs.append(song)
@@ -344,7 +352,7 @@ def scan_event_root(root: Path) -> tuple[list[ScanEvent], list[ScanSong], list[S
         event_charts: list[ScanChart] = []
 
         for song_dir in _discover_song_directories(event_dir):
-            song, song_charts = _scan_song_directory(song_dir, path_root, promote=0)
+            song, song_charts = _scan_song_directory(song_dir, path_root, promote=0, tag="")
             if song is None:
                 continue
             event_songs.append(song)
@@ -368,6 +376,29 @@ def scan_event_root(root: Path) -> tuple[list[ScanEvent], list[ScanSong], list[S
     return events, songs, charts
 
 
+def scan_tagged_root(root: Path) -> tuple[list[ScanSong], list[ScanChart]]:
+    songs: list[ScanSong] = []
+    charts: list[ScanChart] = []
+
+    if not root.is_dir():
+        return songs, charts
+
+    root_name = root.as_posix().strip("/")
+    for tag_dir in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+        if not tag_dir.is_dir():
+            continue
+        tag = tag_dir.name
+        path_root = f"{root_name}/{tag}".strip("/")
+        for song_dir in _discover_song_directories(tag_dir):
+            song, song_charts = _scan_song_directory(song_dir, path_root, promote=0, tag=tag)
+            if song is None:
+                continue
+            songs.append(song)
+            charts.extend(song_charts)
+
+    return songs, charts
+
+
 def scan_all_sources(
     song_roots: list[Path] | None = None,
     event_root: Path | None = None,
@@ -384,6 +415,10 @@ def scan_all_sources(
         root_songs, root_charts = scan_song_root(root, promote)
         songs.extend(root_songs)
         charts.extend(root_charts)
+
+    tagged_songs, tagged_charts = scan_tagged_root(SONG_TAGGED_ROOT)
+    songs.extend(tagged_songs)
+    charts.extend(tagged_charts)
 
     event_list, event_songs, event_charts = scan_event_root(event_root)
     events.extend(event_list)

@@ -9,7 +9,7 @@ from typing import Any
 
 
 DB_PATH = Path("data") / "malody.db"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _connect() -> sqlite3.Connection:
@@ -44,6 +44,7 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             length INTEGER,
             cover TEXT,
             background TEXT,
+            tag TEXT,
             mode_mask INTEGER,
             UNIQUE(path, song_folder_name)
         );
@@ -87,6 +88,13 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    _ensure_songs_tag_column(conn)
+
+
+def _ensure_songs_tag_column(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(songs)").fetchall()}
+    if "tag" not in columns:
+        conn.execute("ALTER TABLE songs ADD COLUMN tag TEXT")
 
 
 def _get_state_map(conn: sqlite3.Connection) -> dict[str, int]:
@@ -111,6 +119,8 @@ def _ensure_state(conn: sqlite3.Connection, id_heads: dict[str, int], now: int) 
     if "schema_version" not in state:
         _set_state(conn, "schema_version", SCHEMA_VERSION, now)
         state["schema_version"] = SCHEMA_VERSION
+    elif int(state.get("schema_version", 0)) < SCHEMA_VERSION:
+        _set_state(conn, "schema_version", SCHEMA_VERSION, now)
 
     if "next_sid" not in state:
         _set_state(conn, "next_sid", int(id_heads.get("sid", 0)) + 1, now)
@@ -228,8 +238,8 @@ def reload_database(snapshot: dict[str, Any], id_heads: dict[str, int], now: int
                     INSERT INTO songs (
                         sid, song_folder_name, path, exist, promote, time,
                         title, artist, title_org, artist_org, bpm, length,
-                        cover, background, mode_mask
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        cover, background, tag, mode_mask
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(path, song_folder_name) DO UPDATE SET
                         sid=excluded.sid,
                         exist=excluded.exist,
@@ -243,6 +253,7 @@ def reload_database(snapshot: dict[str, Any], id_heads: dict[str, int], now: int
                         length=excluded.length,
                         cover=excluded.cover,
                         background=excluded.background,
+                        tag=excluded.tag,
                         mode_mask=excluded.mode_mask
                     """,
                 (
@@ -260,6 +271,7 @@ def reload_database(snapshot: dict[str, Any], id_heads: dict[str, int], now: int
                         song.get("length"),
                         song.get("cover"),
                         song.get("background"),
+                        song.get("tag"),
                         song.get("mode_mask"),
                     ),
             )
@@ -381,7 +393,7 @@ def query_all_charts() -> list[dict[str, Any]]:
             """
             SELECT c.cid, c.sid, c.hash, c.path AS chart_path, c.mc_name, c.version, c.level, c.mode,
                      c.uid, c.creator, c.size, c.type,
-                     s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote,
+                     s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote, s.tag AS tag,
                    s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
                    s.bpm AS bpm, s.cover AS cover, s.background AS background, s.length AS length, c.time AS chart_time, s.time AS song_time
             FROM charts c
@@ -399,7 +411,7 @@ def query_charts_by_sid(sid: int) -> list[dict[str, Any]]:
             """
             SELECT c.cid, c.sid, c.hash, c.path AS chart_path, c.mc_name, c.version, c.level, c.mode,
                      c.uid, c.creator, c.size, c.type,
-                     s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote,
+                     s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote, s.tag AS tag,
                    s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
                    s.bpm AS bpm, s.cover AS cover, s.background AS background, s.length AS length, c.time AS chart_time, s.time AS song_time
             FROM charts c
@@ -418,7 +430,7 @@ def query_chart_by_cid(cid: int) -> dict[str, Any] | None:
             """
             SELECT c.cid, c.sid, c.hash, c.path AS chart_path, c.mc_name, c.version, c.level, c.mode,
                      c.uid, c.creator, c.size, c.type,
-                     s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote,
+                     s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote, s.tag AS tag,
                    s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
                    s.bpm AS bpm, s.cover AS cover, s.background AS background, s.length AS length, c.time AS chart_time, s.time AS song_time
             FROM charts c
