@@ -360,10 +360,10 @@ def store_download(cid: int) -> dict:
     chart = db.query_chart_by_cid(cid)
     if not chart:
         return {"code": -2, "items": [], "sid": 0, "cid": cid}
-    chart_path = Path(chart.get("chart_path") or chart.get("chart_path"))
+    chart_path = Path(chart.get("chart_path", ''))
     if not chart_path.exists():
         # try relative to repo
-        chart_path = Path.cwd() / chart.get("chart_path")
+        chart_path = Path.cwd() / chart.get("chart_path", '')
     if not chart_path.exists():
         return {"code": 0, "items": [], "sid": chart.get("sid"), "cid": cid, "uid": 0}
 
@@ -390,9 +390,9 @@ def download_by_cid(cid: int):
     chart = db.query_chart_by_cid(cid)
     if not chart:
         raise HTTPException(status_code=404, detail="cid not found")
-    chart_path = Path(chart.get("chart_path") or chart.get("chart_path"))
+    chart_path = Path(chart.get("chart_path", ''))
     if not chart_path.exists():
-        chart_path = Path.cwd() / chart.get("chart_path")
+        chart_path = Path.cwd() / chart.get("chart_path", '')
     if not chart_path.exists():
         raise HTTPException(status_code=404, detail="chart folder not found")
 
@@ -412,9 +412,9 @@ def download_entry_by_name(cid: int, name: str = Query(...)):
     chart = db.query_chart_by_cid(cid)
     if not chart:
         raise HTTPException(status_code=404, detail="cid not found")
-    chart_path = Path(chart.get("chart_path") or chart.get("chart_path"))
+    chart_path = Path(chart.get("chart_path", ''))
     if not chart_path.exists():
-        chart_path = Path.cwd() / chart.get("chart_path")
+        chart_path = Path.cwd() / chart.get("chart_path", '')
     target = chart_path / name
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="file not found")
