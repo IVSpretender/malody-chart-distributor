@@ -329,13 +329,34 @@ def store_charts(
     beta: int = Query(default=0),
     mode: int = Query(default=-1),
     from_: int = Query(default=0, alias="from"),
-    promote: int = Query(default=0),
+    promote: int = Query(default=0), # ignored temporarily, as promote is now a song-level field and this endpoint is chart-level. Can consider adding promote filter in the future if needed.
 ) -> dict:
     charts = db.query_charts_by_sid(sid)
+    # default only returns stable charts, beta=1 includes non-stable charts
+    if int(beta) == 0:
+        charts = [c for c in charts if int(c.get("type") or 0) == 2]
+
     # optional mode filter
     if mode is not None and int(mode) >= 0:
         charts = [c for c in charts if int(c.get("mode", -1)) == int(mode)]
-    return {"code": 0, "hasMore": False, "next": 0, "data": charts}
+
+    page, has_more, next_val = _paginate(charts, from_)
+    data = [
+        {
+            "cid": int(c.get("cid") or 0),
+            "uid": int(c.get("uid") or 0),
+            "creator": c.get("creator") or "",
+            "version": c.get("version") or "",
+            "level": int(c.get("level") or 0),
+            "length": int(c.get("length") or 0),
+            "type": int(c.get("type") or 0),
+            "size": int(c.get("size") or 0),
+            "mode": int(c.get("mode") or -1),
+            "hot": int(c.get("download_count") or 0),
+        }
+        for c in page
+    ]
+    return {"code": 0, "hasMore": has_more, "next": next_val, "data": data}
 
 
 @app.get("/api/store/query")
@@ -368,8 +389,12 @@ def store_download(cid: int) -> dict:
         return {"code": 0, "items": [], "sid": chart.get("sid"), "cid": cid, "uid": 0}
 
     items = []
+    main_mc_name = (chart.get("mc_name") or "").lower()
     for entry in sorted(chart_path.iterdir()):
         if entry.is_file():
+            # Skip other chart files in the same folder; keep only this cid's main chart file.
+            if entry.suffix.lower() in {".mc", ".mc_"} and entry.name.lower() != main_mc_name:
+                continue
             size = entry.stat().st_size
             md5 = _file_md5(entry)
             url = f"{BASE_URL}/download/cid/{cid}/file?name={urllib.parse.quote(entry.name)}"
@@ -397,10 +422,14 @@ def download_by_cid(cid: int):
         raise HTTPException(status_code=404, detail="chart folder not found")
 
     bio = io.BytesIO()
+    main_mc_name = (chart.get("mc_name") or "").lower()
     with zipfile.ZipFile(bio, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
         for p in sorted(chart_path.rglob("*")):
             arcname = p.relative_to(chart_path)
             if p.is_file():
+                # Skip other chart files in the same folder when packaging one cid.
+                if p.suffix.lower() in {".mc", ".mc_"} and p.name.lower() != main_mc_name:
+                    continue
                 z.write(p, arcname.as_posix())
     bio.seek(0)
     db.increment_download(cid)
@@ -418,7 +447,9 @@ def download_entry_by_name(cid: int, name: str = Query(...)):
     target = chart_path / name
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="file not found")
-    db.increment_download(cid)
+    # Only count download when requesting this cid's own main chart file.
+    if target.name.lower() == (chart.get("mc_name") or "").lower():
+        db.increment_download(cid)
     return FileResponse(path=target, filename=target.name, media_type="application/octet-stream")
 
 

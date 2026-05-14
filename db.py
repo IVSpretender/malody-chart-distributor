@@ -393,11 +393,13 @@ def query_all_charts() -> list[dict[str, Any]]:
             """
             SELECT c.cid, c.sid, c.hash, c.path AS chart_path, c.mc_name, c.version, c.level, c.mode,
                      c.uid, c.creator, c.size, c.type,
+                     COALESCE(st.download_count, 0) AS download_count,
                      s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote, s.tag AS tag,
                    s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
                    s.bpm AS bpm, s.cover AS cover, s.background AS background, s.length AS length, c.time AS chart_time, s.time AS song_time
             FROM charts c
             JOIN songs s ON c.sid = s.sid
+            LEFT JOIN stats st ON st.cid = c.cid
             WHERE c.exist = 1
             ORDER BY c.cid ASC
             """
@@ -411,11 +413,13 @@ def query_charts_by_sid(sid: int) -> list[dict[str, Any]]:
             """
             SELECT c.cid, c.sid, c.hash, c.path AS chart_path, c.mc_name, c.version, c.level, c.mode,
                      c.uid, c.creator, c.size, c.type,
+                     COALESCE(st.download_count, 0) AS download_count,
                      s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote, s.tag AS tag,
                    s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
                    s.bpm AS bpm, s.cover AS cover, s.background AS background, s.length AS length, c.time AS chart_time, s.time AS song_time
             FROM charts c
             JOIN songs s ON c.sid = s.sid
+            LEFT JOIN stats st ON st.cid = c.cid
             WHERE c.exist = 1 AND c.sid = ?
             ORDER BY c.cid ASC
             """,
@@ -430,11 +434,13 @@ def query_chart_by_cid(cid: int) -> dict[str, Any] | None:
             """
             SELECT c.cid, c.sid, c.hash, c.path AS chart_path, c.mc_name, c.version, c.level, c.mode,
                      c.uid, c.creator, c.size, c.type,
+                     COALESCE(st.download_count, 0) AS download_count,
                      s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote, s.tag AS tag,
                    s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
                    s.bpm AS bpm, s.cover AS cover, s.background AS background, s.length AS length, c.time AS chart_time, s.time AS song_time
             FROM charts c
             JOIN songs s ON c.sid = s.sid
+            LEFT JOIN stats st ON st.cid = c.cid
             WHERE c.exist = 1 AND c.cid = ?
             LIMIT 1
             """,
