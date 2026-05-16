@@ -401,7 +401,7 @@ def query_all_charts() -> list[dict[str, Any]]:
             JOIN songs s ON c.sid = s.sid
             LEFT JOIN stats st ON st.cid = c.cid
             WHERE c.exist = 1
-            ORDER BY c.cid ASC
+            ORDER BY c.cid DESC
             """
         ).fetchall()
         return [_row_to_dict(r) for r in rows]

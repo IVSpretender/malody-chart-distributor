@@ -24,4 +24,5 @@ done
 
 
 echo -e "\033[36mStarting Uvicorn server...\033[0m"
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000 --reload-dir charts --reload-dir charts_tagged --reload-dir promote --reload-dir events --reload-include '*.mc' --reload-include 'event.json'
+PORT="${MALODY_PORT:-8080}"
+uv run uvicorn main:app --reload --host 0.0.0.0 --port "$PORT" --reload-dir charts --reload-dir charts_tagged --reload-dir promote --reload-dir events --reload-include '*.mc' --reload-include 'event.json'

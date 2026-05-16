@@ -67,7 +67,7 @@ chmod +x run.sh
 
 打开 `config.py`，按需调整：
 
-- **`BASE_URL`**: 服务器地址，默认 `http://localhost:8000`。局域网访问时改为 `http://你的IP:8000`
+- **`BASE_URL`**: 服务器地址，默认 `http://localhost:8080`。局域网访问时改为 `http://你的IP:8080`
 - **`SONG_SOURCE_ROOTS`**: 歌曲来源目录列表
 - **`PAGE_SIZE`**: 每页返回多少首歌曲
 - **`WELCOME_MESSAGE`**: 欢迎信息
@@ -136,7 +136,7 @@ events/
 ### 1.6. 连接到 Malody 客户端
 
 1. 在 Malody V 客户端中进入 **设置 → 服务器**
-2. 将 **谱面服务器主机** 设置为 `http://你的服务器IP:8000/`
+2. 将 **谱面服务器主机** 设置为 `http://你的服务器IP:8080/`
 3. 返回商店，即可看到你的谱面列表
 
 ## 2. 文件说明
@@ -178,15 +178,15 @@ events/
 
 **本地测试本项目：**
 ```
-BASE_URL = "http://localhost:8000" 
+BASE_URL = "http://localhost:8080" 
 ```
 
 **服务器部署本项目：**
 ```
-BASE_URL = "http://<你的服务器IP>:8000"
+BASE_URL = "http://<你的服务器IP>:8080"
 ```
 
-如果修改 `BASE_URL` 中的端口号，需要在 run.ps1 或 run.sh 中修改启动命令中的端口号：
+如果修改 `BASE_URL` 中的端口号，需要在 run.ps1 或 run.sh 中同步修改启动命令中的端口号，或者通过 `MALODY_PORT` 环境变量指定：
 
 ```bash
 uv run uvicorn main:app --reload --host 0.0.0.0 --port <端口号> --reload-dir charts ...
@@ -211,7 +211,7 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port <端口号> --reload-dir 
 **排查步骤：**
 1. 确认服务器正在运行（终端无错误消息）
 2. 检查 `BASE_URL` 是否正确设置
-3. 确认防火墙允许 8000 端口通信
+3. 确认防火墙允许 8080 端口通信
 4. 确认客户端与服务器在同一网络
 
 ### 4.3. 谱面无法加载

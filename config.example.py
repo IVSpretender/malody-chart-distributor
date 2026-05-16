@@ -10,7 +10,8 @@ def _child_dirs(base: Path) -> list[Path]:
 # main.py
 WELCOME_MESSAGE = "Welcome to my private server!"
 PAGE_SIZE = 14
-BASE_URL = "http://localhost:8000"
+DAILY_RECOMMEND_NUM = 5
+BASE_URL = "http://localhost:8080"
 
 # 目录源：charts / promote 作为歌曲来源，events 作为活动来源。charts_tagged/tag1_tag2/ ... 作为带标签的歌曲来源。
 SONG_SOURCE_ROOTS = [Path("charts"), Path("promote")]
