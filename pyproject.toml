@@ -1,6 +1,6 @@
 [project]
 name = "malody-chart-distributor"
-version = "0.4.0"
+version = "0.4.1"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,3 +15,9 @@ dependencies = [
 dev = [
     "ruff>=0.15.12",
 ]
+
+[tool.uv]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true

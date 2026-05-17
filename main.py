@@ -164,6 +164,7 @@ def _chart_response(chart: dict) -> dict:
         "type": int(chart.get("type") or 0),
         "size": int(chart.get("size") or 0),
         "mode": int(chart.get("mode") or -1),
+        "hot": int(chart.get("download_count") or 0), # API 文档中没有说明 hot 字段的含义，这里暂时用 download_count 代替，表示谱面热度（下载次数）。如果有更合适的字段可以替换。
     }
 
 
