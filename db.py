@@ -492,6 +492,103 @@ def query_chart_by_cid(cid: int) -> dict[str, Any] | None:
         return _row_to_dict(row) if row else None
 
 
+def _song_filter_clause(simple_words: list[str], tags: list[str], mode: int, lvge: int, lvle: int, promote_only: bool) -> tuple[str, list[Any]]:
+    clauses: list[str] = ["s.exist = 1"]
+    params: list[Any] = []
+
+    if promote_only:
+        clauses.append("s.promote = 1")
+
+    for simple_word in simple_words:
+        clauses.append(
+            "(" \
+            "lower(coalesce(s.title, '')) LIKE ? OR " \
+            "lower(coalesce(s.title_org, '')) LIKE ? OR " \
+            "lower(coalesce(s.artist, '')) LIKE ? OR " \
+            "lower(coalesce(s.artist_org, '')) LIKE ?" \
+            ")"
+        )
+        like_value = f"%{simple_word.lower()}%"
+        params.extend([like_value, like_value, like_value, like_value])
+
+    for tag in tags:
+        clauses.append("instr(' ' || lower(coalesce(s.tag, '')) || ' ', ' ' || ? || ' ') > 0")
+        params.append(tag.lower())
+
+    if int(mode) >= 0:
+        clauses.append(
+            "EXISTS ("
+            "SELECT 1 FROM charts c "
+            "WHERE c.sid = s.sid AND c.exist = 1 AND c.mode = ?"
+            ")"
+        )
+        params.append(int(mode))
+
+    if int(lvge) or int(lvle):
+        level_clause = ["c.sid = s.sid", "c.exist = 1"]
+        if int(lvge):
+            level_clause.append("c.level >= ?")
+            params.append(int(lvge))
+        if int(lvle):
+            level_clause.append("c.level <= ?")
+            params.append(int(lvle))
+        clauses.append("EXISTS (SELECT 1 FROM charts c WHERE " + " AND ".join(level_clause) + ")")
+
+    return " AND ".join(clauses), params
+
+
+def query_songs_for_list(simple_words: list[str], tags: list[str], mode: int, lvge: int, lvle: int) -> list[dict[str, Any]]:
+    where_clause, params = _song_filter_clause(simple_words, tags, mode, lvge, lvle, promote_only=False)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT s.sid, s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote,
+                   s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
+                   s.cover AS cover, s.background AS background, s.tag AS tag,
+                   s.length AS length, s.bpm AS bpm, s.time AS time, s.mode_mask AS mode_mask
+            FROM songs s
+            WHERE {where_clause}
+            ORDER BY s.time DESC, s.sid DESC
+            """,
+            params,
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+def query_songs_for_promote(mode: int) -> list[dict[str, Any]]:
+    where_clause, params = _song_filter_clause([], [], mode, 0, 0, promote_only=True)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT s.sid, s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote,
+                   s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
+                   s.cover AS cover, s.background AS background, s.tag AS tag,
+                   s.length AS length, s.bpm AS bpm, s.time AS time, s.mode_mask AS mode_mask
+            FROM songs s
+            WHERE {where_clause}
+            ORDER BY s.time DESC, s.sid DESC
+            """,
+            params,
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+def query_songs_for_choice() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT s.sid, s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote,
+                   s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
+                   s.cover AS cover, s.background AS background, s.tag AS tag,
+                   s.length AS length, s.bpm AS bpm, s.time AS time, s.mode_mask AS mode_mask
+            FROM songs s
+            WHERE s.exist = 1
+            ORDER BY s.time DESC, s.sid DESC
+            """
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
 def increment_download(cid: int) -> None:
     now = int(time.time())
     with _connect() as conn:
@@ -528,6 +625,126 @@ def query_event_by_eid(eid: int) -> dict[str, Any] | None:
         return d
 
 
+def _print_query_plan(conn: sqlite3.Connection, label: str, sql: str, params: tuple[Any, ...] = ()) -> None:
+    rows = conn.execute(f"EXPLAIN QUERY PLAN {sql}", params).fetchall()
+    print(f"\n[DB] Query Plan: {label}")
+    for row in rows:
+        print(f"  {row['detail']}")
+
+
+def print_query_plans() -> None:
+    conn = _connect()
+    try:
+        _print_query_plan(
+            conn,
+            "query_songs_for_list",
+            """
+            SELECT s.sid, s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote,
+                   s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
+                   s.cover AS cover, s.background AS background, s.tag AS tag,
+                   s.length AS length, s.bpm AS bpm, s.time AS time, s.mode_mask AS mode_mask
+            FROM songs s
+            WHERE s.exist = 1
+              AND lower(coalesce(s.title, '')) LIKE ?
+              AND instr(' ' || lower(coalesce(s.tag, '')) || ' ', ' ' || ? || ' ') > 0
+              AND EXISTS (
+                  SELECT 1
+                  FROM charts c
+                  WHERE c.sid = s.sid AND c.exist = 1 AND c.mode = ?
+              )
+              AND EXISTS (
+                  SELECT 1
+                  FROM charts c
+                  WHERE c.sid = s.sid AND c.exist = 1 AND c.level >= ? AND c.level <= ?
+              )
+            ORDER BY s.time DESC, s.sid DESC
+            """,
+            ("%test%", "tag", 0, 1, 10),
+        )
+
+        _print_query_plan(
+            conn,
+            "query_songs_for_promote",
+            """
+            SELECT s.sid, s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote,
+                   s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
+                   s.cover AS cover, s.background AS background, s.tag AS tag,
+                   s.length AS length, s.bpm AS bpm, s.time AS time, s.mode_mask AS mode_mask
+            FROM songs s
+            WHERE s.exist = 1
+              AND s.promote = 1
+              AND EXISTS (
+                  SELECT 1
+                  FROM charts c
+                  WHERE c.sid = s.sid AND c.exist = 1 AND c.mode = ?
+              )
+            ORDER BY s.time DESC, s.sid DESC
+            """,
+            (0,),
+        )
+
+        _print_query_plan(
+            conn,
+            "query_songs_for_choice",
+            """
+            SELECT s.sid, s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote,
+                   s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
+                   s.cover AS cover, s.background AS background, s.tag AS tag,
+                   s.length AS length, s.bpm AS bpm, s.time AS time, s.mode_mask AS mode_mask
+            FROM songs s
+            WHERE s.exist = 1
+            ORDER BY s.time DESC, s.sid DESC
+            """,
+        )
+
+        _print_query_plan(
+            conn,
+            "query_charts_by_sid",
+            """
+            SELECT c.cid, c.sid, c.hash, c.path AS chart_path, c.mc_name, c.version, c.level, c.mode,
+                   c.uid, c.creator, c.size, c.type,
+                   COALESCE(st.download_count, 0) AS download_count,
+                   s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote, s.tag AS tag,
+                   s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
+                   s.bpm AS bpm, s.cover AS cover, s.background AS background, s.length AS length, c.time AS chart_time, s.time AS song_time
+            FROM charts c
+            JOIN songs s ON c.sid = s.sid
+            LEFT JOIN stats st ON st.cid = c.cid
+            WHERE c.exist = 1 AND c.sid = ?
+            ORDER BY c.cid ASC
+            """,
+            (1,),
+        )
+
+        _print_query_plan(
+            conn,
+            "query_charts_by_sids",
+            """
+            SELECT c.cid, c.sid, c.hash, c.path AS chart_path, c.mc_name, c.version, c.level, c.mode,
+                   c.uid, c.creator, c.size, c.type,
+                   COALESCE(st.download_count, 0) AS download_count,
+                   s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote, s.tag AS tag,
+                   s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
+                   s.bpm AS bpm, s.cover AS cover, s.background AS background, s.length AS length, c.time AS chart_time, s.time AS song_time
+            FROM charts c
+            JOIN songs s ON c.sid = s.sid
+            LEFT JOIN stats st ON st.cid = c.cid
+            WHERE c.exist = 1 AND c.sid IN (?, ?)
+            ORDER BY c.sid ASC, c.cid ASC
+            """,
+            (1, 2),
+        )
+
+        _print_query_plan(
+            conn,
+            "query_event_by_eid",
+            "SELECT * FROM events WHERE eid = ? AND exist=1",
+            (1,),
+        )
+    finally:
+        conn.close()
+
+
 def print_stats() -> None:
     conn = _connect()
     try:
@@ -549,3 +766,11 @@ def print_stats() -> None:
         print()
     finally:
         conn.close()
+
+
+def main() -> None:
+    print_query_plans()
+
+
+if __name__ == "__main__":
+    main()

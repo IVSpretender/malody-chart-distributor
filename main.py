@@ -148,7 +148,7 @@ def _song_response(song: dict) -> dict:
         "bpm": float(song.get("bpm") or 0),
         "title": song.get("title") or "",
         "artist": song.get("artist") or "",
-        "mode": _song_mode_mask(song),
+        "mode": int(song.get("mode_mask") or _song_mode_mask(song)),
         "time": int(song.get("time") or 0),
     }
 
@@ -237,41 +237,11 @@ def store_list(
     beta: int = Query(default=0),
     from_: int = Query(default=0, alias="from"),
 ) -> dict:
-    charts = db.query_all_charts()
-    songs = _build_songs_from_charts(charts, include_fields=["promote", "rep_cid"])
-
     # parse tag tokens from word: tokens starting with '#'
     raw_word = (word or "").strip()
     tags = [t[1:].lower() for t in raw_word.split() if t.startswith("#")]
     simple_words = [t.lower() for t in raw_word.split() if not t.startswith("#")]
-
-    def song_matches(s: dict) -> bool:
-        # all simple words must match in title/artist/titleorg/artistorg
-        for simple_word in simple_words:
-            if simple_word not in (s.get("title") or "").lower() and simple_word not in (s.get("titleorg") or "").lower() \
-            and simple_word not in (s.get("artist") or "").lower() and simple_word not in (s.get("artistorg") or "").lower():
-                return False
-        # tag matching: check tag or title contains tag
-        for tag in tags:
-            if tag.lower() not in (s.get('tag') or "").lower().split():
-                return False
-        # mode filter: any chart matches mode
-        if int(mode) >= 0:
-            if not any(int(ch.get("mode", -1)) == int(mode) for ch in s["charts"]):
-                return False
-        # level range filter
-        if lvge or lvle:
-            ok = False
-            for ch in s["charts"]:
-                lvl = int(ch.get("level", 0) or 0)
-                if lvl >= int(lvge) and (int(lvle) == 0 or lvl <= int(lvle)):
-                    ok = True
-                    break
-            if not ok:
-                return False
-        return True
-
-    items = [v for v in songs.values() if song_matches(v)]
+    items = db.query_songs_for_list(simple_words, tags, mode, lvge, lvle)
     page, has_more, next_val = _paginate(items, from_)
     _apply_org_titles(page, org)
     _apply_cover_urls(page)
@@ -284,13 +254,7 @@ def store_promote(
     mode: int = Query(default=-1),
     from_: int = Query(default=0, alias="from"),
 ) -> dict:
-    charts = db.query_all_charts()
-    songs = _build_songs_from_charts(charts, include_fields=["promote"])
-
-    # 仅过滤已推荐的歌曲
-    items = [s for s in songs.values() if int(s.get("promote", 0)) == 1]
-    if int(mode) >= 0:
-        items = [s for s in items if any(int(ch.get("mode", -1)) == int(mode) for ch in s["charts"])]
+    items = db.query_songs_for_promote(mode)
 
     page, has_more, next_val = _paginate(items, from_)
     _apply_org_titles(page, org)
@@ -302,10 +266,7 @@ def store_promote(
 def store_choice(
     org: int = Query(default=0),
 ) -> dict:
-    charts = db.query_all_charts()
-    songs = _build_songs_from_charts(charts, include_fields=["promote", "rep_cid"])
-
-    items = list(songs.values())
+    items = db.query_songs_for_choice()
     recommend_num = max(0, int(DAILY_RECOMMEND_NUM))
     if recommend_num > 0 and items:
         items = random.sample(items, min(recommend_num, len(items)))
