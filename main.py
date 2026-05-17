@@ -61,8 +61,6 @@ def _apply_cover_urls(items: list[dict]) -> None:
         cover_url = _find_cover_url_for_song(item)
         if cover_url:
             item["cover"] = cover_url
-        else:
-            item["cover"] = item.get("cover") or ""
 
 
 def _build_songs_from_charts(charts: list[dict], include_fields: list[str] | None = None) -> dict[int, dict]:
@@ -87,7 +85,12 @@ def _build_songs_from_charts(charts: list[dict], include_fields: list[str] | Non
                 "artist": artist,
                 "artistorg": artistorg,
                 "cover": c.get("cover") or "",
+                "background": c.get("background") or "",
+                "song_folder_name": c.get("source_name") or "",
                 "tag": c.get("tag") or "",
+                "length": int(c.get("length") or 0),
+                "bpm": float(c.get("bpm") or 0),
+                "time": int(c.get("song_time") or c.get("chart_time") or 0),
                 "charts": [],
                 "song_path": c.get("song_path") or None,
             }
@@ -128,60 +131,71 @@ def _apply_org_titles(items: list[dict], org: int) -> None:
         item["artist"] = _localized_text(item.get("artist") or "", item.get("artistorg") or "", use_alternate)
 
 
-def _assets_url_for_path(p: Path) -> str | None:
-    try:
-        rp = p.resolve()
-    except Exception:
-        return None
-    # ensure under allowed roots
-    allowed = [r.resolve() for r in DOWNLOAD_ROOTS]
-    ok = False
-    for root in allowed:
-        try:
-            if root in rp.parents or rp == root:
-                ok = True
-                break
-        except Exception:
-            continue
-    if not ok or not rp.exists() or not rp.is_file():
-        return None
-    # require asset path be under repository root so we return repo-relative paths
-    try:
-        rel = rp.relative_to(REPO_ROOT)
-    except Exception:
-        return None
-    # use posix style relative path in URL
-    rel_posix = rel.as_posix()
-    return f"{BASE_URL}/assets/file?path={urllib.parse.quote(rel_posix)}"
+def _song_mode_mask(song: dict) -> int:
+    mode_mask = 0
+    for chart in song.get("charts", []):
+        mode = int(chart.get("mode") or -1)
+        if 0 <= mode <= 30:
+            mode_mask |= 1 << mode
+    return mode_mask
+
+
+def _song_response(song: dict) -> dict:
+    return {
+        "sid": int(song.get("sid") or 0),
+        "cover": song.get("cover") or "",
+        "length": int(song.get("length") or 0),
+        "bpm": float(song.get("bpm") or 0),
+        "title": song.get("title") or "",
+        "artist": song.get("artist") or "",
+        "mode": _song_mode_mask(song),
+        "time": int(song.get("time") or 0),
+    }
+
+
+def _chart_response(chart: dict) -> dict:
+    return {
+        "cid": int(chart.get("cid") or 0),
+        "uid": int(chart.get("uid") or 0),
+        "creator": chart.get("creator") or "",
+        "version": chart.get("version") or "",
+        "level": int(chart.get("level") or 0),
+        "length": int(chart.get("length") or 0),
+        "type": int(chart.get("type") or 0),
+        "size": int(chart.get("size") or 0),
+        "mode": int(chart.get("mode") or -1),
+    }
+
+
+def _event_chart_response(chart: dict, org: int) -> dict:
+    return {
+        "sid": int(chart.get("sid") or 0),
+        "cid": int(chart.get("cid") or 0),
+        "uid": int(chart.get("uid") or 0),
+        "creator": chart.get("creator") or "",
+        "title": chart.get("title") or "",
+        "artist": chart.get("artist") or "",
+        "version": chart.get("version") or "",
+        "level": int(chart.get("level") or 0),
+        "length": int(chart.get("length") or 0),
+        "type": int(chart.get("type") or 0),
+        "cover": chart.get("cover") or "",
+        "time": int(chart.get("time") or 0),
+        "mode": int(chart.get("mode") or -1),
+    }
+
+
+def _assets_url_for_relpath(rel_path: str) -> str:
+    if not rel_path:
+        return ""
+    return f"{BASE_URL}/assets/file?path={urllib.parse.quote(rel_path)}"
 
 
 def _find_cover_url_for_song(song: dict) -> str:
-    # collect candidate names: cover then backgrounds from charts
-    candidates: list[str] = []
-    cover_name = song.get("cover") or ""
-    if cover_name:
-        candidates.append(cover_name)
-    for ch in song.get("charts", []):
-        bg = ch.get("background")
-        if bg:
-            candidates.append(bg)
-
-    # search in chart folders first then song_path
-    for cand in candidates:
-        for ch in song.get("charts", []):
-            cp = ch.get("chart_path")
-            if not cp:
-                continue
-            p = Path(cp) / cand
-            url = _assets_url_for_path(p)
-            if url:
-                return url
-        sp = song.get("song_path")
-        if sp:
-            p2 = Path(sp) / cand
-            url2 = _assets_url_for_path(p2)
-            if url2:
-                return url2
+    for rel_path in (song.get("cover") or "", song.get("background") or ""):
+        url = _assets_url_for_relpath(rel_path)
+        if url:
+            return url
     return ""
 
 
@@ -195,7 +209,7 @@ def _find_cover_url_for_event(event: dict) -> str:
     if not source_root or not event_folder_name:
         return ""
 
-    return _assets_url_for_path(Path(source_root) / event_folder_name / cover_name) or ""
+    return _assets_url_for_relpath(str(Path(source_root) / event_folder_name / cover_name))
 
 
 @app.get("/")
@@ -261,7 +275,7 @@ def store_list(
     page, has_more, next_val = _paginate(items, from_)
     _apply_org_titles(page, org)
     _apply_cover_urls(page)
-    return {"code": 0, "hasMore": has_more, "next": next_val, "data": page}
+    return {"code": 0, "hasMore": has_more, "next": next_val, "data": [_song_response(item) for item in page]}
 
 
 @app.get("/api/store/promote")
@@ -281,7 +295,7 @@ def store_promote(
     page, has_more, next_val = _paginate(items, from_)
     _apply_org_titles(page, org)
     _apply_cover_urls(page)
-    return {"code": 0, "hasMore": has_more, "next": next_val, "data": page}
+    return {"code": 0, "hasMore": has_more, "next": next_val, "data": [_song_response(item) for item in page]}
 
 
 @app.get("/api/store/choice")
@@ -300,7 +314,7 @@ def store_choice(
 
     _apply_org_titles(items, org)
     _apply_cover_urls(items)
-    return {"code": 0, "hasMore": False, "next": 0, "data": items}
+    return {"code": 0, "hasMore": False, "next": 0, "data": [_song_response(item) for item in items]}
 
 
 @app.get("/assets/file")
@@ -323,7 +337,7 @@ def assets_file(path: str = Query(...)):
             continue
     if not ok or not p.exists() or not p.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
-    return FileResponse(path=p, media_type="image/png")
+    return FileResponse(path=p)
 
 
 @app.get("/api/store/friend")
@@ -352,21 +366,7 @@ def store_charts(
         charts = [c for c in charts if int(c.get("mode", -1)) == int(mode)]
 
     page, has_more, next_val = _paginate(charts, from_)
-    data = [
-        {
-            "cid": int(c.get("cid") or 0),
-            "uid": int(c.get("uid") or 0),
-            "creator": c.get("creator") or "",
-            "version": c.get("version") or "",
-            "level": int(c.get("level") or 0),
-            "length": int(c.get("length") or 0),
-            "type": int(c.get("type") or 0),
-            "size": int(c.get("size") or 0),
-            "mode": int(c.get("mode") or -1),
-            "hot": int(c.get("download_count") or 0),
-        }
-        for c in page
-    ]
+    data = [_chart_response(c) for c in page]
     return {"code": 0, "hasMore": has_more, "next": next_val, "data": data}
 
 
@@ -380,10 +380,21 @@ def store_query(
         chart = db.query_chart_by_cid(cid)
         if not chart:
             raise HTTPException(status_code=404, detail="cid not found")
-        return {"code": 0, "data": chart}
+        charts = db.query_charts_by_sid(int(chart.get("sid") or 0))
+        songs = _build_songs_from_charts(charts)
+        song = songs.get(int(chart.get("sid") or 0))
+        if not song:
+            return {"code": 0, "data": []}
+        _apply_org_titles([song], org)
+        _apply_cover_urls([song])
+        return {"code": 0, "data": [_song_response(song)]}
     if sid is not None:
         charts = db.query_charts_by_sid(sid)
-        return {"code": 0, "data": charts}
+        songs = _build_songs_from_charts(charts)
+        items = list(songs.values())
+        _apply_org_titles(items, org)
+        _apply_cover_urls(items)
+        return {"code": 0, "data": [_song_response(item) for item in items]}
     return {"code": 0, "data": []}
 
 
@@ -399,18 +410,23 @@ def store_download(cid: int) -> dict:
     if not chart_path.exists():
         return {"code": 0, "items": [], "sid": chart.get("sid"), "cid": cid, "uid": 0}
 
-    items = []
+    db.increment_download(cid)
+
     main_mc_name = (chart.get("mc_name") or "").lower()
-    for entry in sorted(chart_path.iterdir()):
+    items = []
+    for entry in sorted(chart_path.rglob("*")):
         if entry.is_file():
-            # Skip other chart files in the same folder; keep only this cid's main chart file.
-            if entry.suffix.lower() in {".mc", ".mc_"} and entry.name.lower() != main_mc_name:
+            if entry.suffix.lower() in {".mc_"}: # 跳过这些文件
                 continue
-            size = entry.stat().st_size
+            rel_name = entry.relative_to(chart_path).as_posix()
+            is_mc_file = entry.suffix.lower() == ".mc"
+            if is_mc_file and rel_name.lower() != main_mc_name:
+                continue
+
             md5 = _file_md5(entry)
-            url = f"{BASE_URL}/download/cid/{cid}/file?name={urllib.parse.quote(entry.name)}"
-            items.append({"name": entry.name, "size": size, "hash": md5, "url": url, "file": url})
-    return {"code": 0, "items": items, "sid": chart.get("sid"), "cid": cid, "uid": 0}
+            url = _assets_url_for_relpath((Path(chart.get("chart_path", "")) / Path(rel_name)).as_posix())
+            items.append({"name": rel_name, "hash": md5, "file": url})
+    return {"code": 0, "items": items, "sid": chart.get("sid"), "cid": cid}
 
 
 def _file_md5(path: Path) -> str:
@@ -419,49 +435,6 @@ def _file_md5(path: Path) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             m.update(chunk)
     return m.hexdigest()
-
-
-@app.get("/download/cid/{cid}")
-def download_by_cid(cid: int):
-    chart = db.query_chart_by_cid(cid)
-    if not chart:
-        raise HTTPException(status_code=404, detail="cid not found")
-    chart_path = Path(chart.get("chart_path", ''))
-    if not chart_path.exists():
-        chart_path = Path.cwd() / chart.get("chart_path", '')
-    if not chart_path.exists():
-        raise HTTPException(status_code=404, detail="chart folder not found")
-
-    bio = io.BytesIO()
-    main_mc_name = (chart.get("mc_name") or "").lower()
-    with zipfile.ZipFile(bio, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
-        for p in sorted(chart_path.rglob("*")):
-            arcname = p.relative_to(chart_path)
-            if p.is_file():
-                # Skip other chart files in the same folder when packaging one cid.
-                if p.suffix.lower() in {".mc", ".mc_"} and p.name.lower() != main_mc_name:
-                    continue
-                z.write(p, arcname.as_posix())
-    bio.seek(0)
-    db.increment_download(cid)
-    return StreamingResponse(bio, media_type="application/zip", headers={"Content-Disposition": f"attachment; filename=chart_{cid}.zip"})
-
-
-@app.get("/download/cid/{cid}/file")
-def download_entry_by_name(cid: int, name: str = Query(...)):
-    chart = db.query_chart_by_cid(cid)
-    if not chart:
-        raise HTTPException(status_code=404, detail="cid not found")
-    chart_path = Path(chart.get("chart_path", ''))
-    if not chart_path.exists():
-        chart_path = Path.cwd() / chart.get("chart_path", '')
-    target = chart_path / name
-    if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="file not found")
-    # Only count download when requesting this cid's own main chart file.
-    if target.name.lower() == (chart.get("mc_name") or "").lower():
-        db.increment_download(cid)
-    return FileResponse(path=target, filename=target.name, media_type="application/octet-stream")
 
 
 @app.get("/api/store/events")
@@ -502,53 +475,47 @@ def store_event(
 
     song_ids = event.get("song_ids") or []
     data: list[dict] = []
-    
+
+    charts = db.query_charts_by_sids(song_ids)
+    charts_by_sid: dict[int, list[dict]] = {}
+    for chart in charts:
+        charts_by_sid.setdefault(int(chart.get("sid") or 0), []).append(chart)
+
     for sid in song_ids:
-        charts = db.query_charts_by_sid(sid)
-        # 从第一条chart获取歌曲级别的字段
-        title = charts[0].get("title") if charts else ""
-        titleorg = (charts[0].get("titleorg") or title) if charts else title
-        artist = charts[0].get("artist") if charts else ""
-        artistorg = (charts[0].get("artistorg") or artist) if charts else artist
-        cover = charts[0].get("cover") if charts else ""
-        
-        for c in charts:
-            item = {
+        sid_charts = charts_by_sid.get(int(sid), [])
+        if not sid_charts:
+            continue
+
+        first_chart = sid_charts[0]
+        title = first_chart.get("title") or ""
+        titleorg = first_chart.get("titleorg") or title
+        artist = first_chart.get("artist") or ""
+        artistorg = first_chart.get("artistorg") or artist
+        cover = first_chart.get("cover") or first_chart.get("background") or ""
+
+        for c in sid_charts:
+            data.append({
                 "sid": int(c.get("sid") or sid),
                 "cid": int(c.get("cid") or 0),
                 "uid": int(c.get("uid") or 0),
                 "creator": c.get("creator") or "",
                 "title": titleorg if int(org) == 1 else title,
                 "artist": artistorg if int(org) == 1 else artist,
-                "titleorg": titleorg,
-                "artistorg": artistorg,
                 "version": c.get("version") or "",
                 "level": int(c.get("level") or 0),
                 "length": int(c.get("length") or 0),
                 "type": int(c.get("type") or 0),
-                "cover": cover,  # 初始值用于查找
+                "cover": cover,
                 "time": int(c.get("chart_time") or c.get("song_time") or 0),
                 "mode": int(c.get("mode") or -1),
-                "song_path": c.get("song_path"),
-                "charts": [{
-                    "chart_path": c.get("chart_path"),
-                    "background": c.get("background"),
-                }],
-            }
-            data.append(item)
+            })
     
 
     # 分页处理
     page, has_more, next_val = _paginate(data, from_, is_event=True)
     _apply_org_titles(page, org)
-    # 应用覆盖URL
     _apply_cover_urls(page)
-    # 清理临时字段
-    for item in page:
-        item.pop("song_path", None)
-        item.pop("charts", None)
-    
-    return {"code": 0, "hasMore": has_more, "next": next_val, "data": page}
+    return {"code": 0, "hasMore": has_more, "next": next_val, "data": [_event_chart_response(item, org) for item in page]}
 
 
 @app.post("/api/store/upload/sign")

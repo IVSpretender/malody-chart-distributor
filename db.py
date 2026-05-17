@@ -89,6 +89,22 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         """
     )
     _ensure_songs_tag_column(conn)
+    _ensure_indexes(conn)
+
+
+def _ensure_indexes(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_charts_sid_exist_cid
+            ON charts (sid, exist, cid);
+
+        CREATE INDEX IF NOT EXISTS idx_charts_exist_cid_desc
+            ON charts (exist, cid DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_events_exist_eid_desc
+            ON events (exist, eid DESC);
+        """
+    )
 
 
 def _ensure_songs_tag_column(conn: sqlite3.Connection) -> None:
@@ -424,6 +440,33 @@ def query_charts_by_sid(sid: int) -> list[dict[str, Any]]:
             ORDER BY c.cid ASC
             """,
             (int(sid),),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+def query_charts_by_sids(sids: list[int]) -> list[dict[str, Any]]:
+    if not sids:
+        return []
+
+    unique_sids = list(dict.fromkeys(int(sid) for sid in sids))
+    placeholders = ", ".join("?" for _ in unique_sids)
+
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT c.cid, c.sid, c.hash, c.path AS chart_path, c.mc_name, c.version, c.level, c.mode,
+                     c.uid, c.creator, c.size, c.type,
+                     COALESCE(st.download_count, 0) AS download_count,
+                     s.song_folder_name AS source_name, s.path AS song_path, s.promote AS promote, s.tag AS tag,
+                   s.title AS title, s.title_org AS titleorg, s.artist AS artist, s.artist_org AS artistorg,
+                   s.bpm AS bpm, s.cover AS cover, s.background AS background, s.length AS length, c.time AS chart_time, s.time AS song_time
+            FROM charts c
+            JOIN songs s ON c.sid = s.sid
+            LEFT JOIN stats st ON st.cid = c.cid
+            WHERE c.exist = 1 AND c.sid IN ({placeholders})
+            ORDER BY c.sid ASC, c.cid ASC
+            """,
+            unique_sids,
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
 

@@ -19,6 +19,8 @@ from config import (
 )
 
 
+
+REPO_ROOT = Path(__file__).parent.resolve()
 _EVENT_JSON_NAME = "event.json"
 _DEFAULT_EVENT_START_DATE = "2026-04-28"
 _DEFAULT_EVENT_END_DATE = "2099-12-31"
@@ -124,11 +126,7 @@ def _load_mc_data(path: Path) -> dict[str, Any] | None:
 def _discover_song_directories(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
-    return [
-        entry
-        for entry in sorted(root.iterdir(), key=lambda p: p.name.lower())
-        if entry.is_dir() and any(entry.rglob("*.mc"))
-    ]
+    return [entry for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()) if entry.is_dir()]
 
 
 def _discover_event_directories(root: Path) -> list[Path]:
@@ -214,6 +212,36 @@ def _song_key(path: str, folder_name: str) -> str:
     return f"{clean_path}/{clean_folder}"
 
 
+def _relative_to_repo(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return ""
+
+
+def _resolve_song_asset_relpath(song_dir: Path, filename: str) -> str:
+    if not filename:
+        return ""
+
+    direct_path = song_dir / filename
+    if direct_path.is_file():
+        rel = _relative_to_repo(direct_path)
+        if rel:
+            return rel
+
+    matches = sorted(
+        (candidate for candidate in song_dir.rglob(filename) if candidate.is_file()),
+        key=lambda candidate: (len(candidate.relative_to(song_dir).parts), candidate.as_posix().lower()),
+    )
+    for candidate in matches:
+        rel = _relative_to_repo(candidate)
+        if rel:
+            return rel
+
+    return ""
+
+
 def _scan_song_directory(
     song_dir: Path,
     path_root: str,
@@ -269,9 +297,9 @@ def _scan_song_directory(
         if not artist_org:
             artist_org = chart_artist_org
         if not cover:
-            cover = chart_cover
+                cover = _resolve_song_asset_relpath(song_dir, chart_cover)
         if not background:
-            background = chart_background
+                background = _resolve_song_asset_relpath(song_dir, chart_background)
         if bpm == 0.0 and chart_bpm:
             bpm = chart_bpm
 
@@ -289,7 +317,7 @@ def _scan_song_directory(
                 song_key=song_key,
                 hash=_hash_mc_content(mc_data),
                 path=chart_path,
-                mc_name=mc_rel.as_posix(),
+                mc_name=mc_rel.name,
                 version=chart_version,
                 level=_parse_level(chart_version),
                 mode=chart_mode,
